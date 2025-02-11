@@ -103,18 +103,46 @@ frontend_nginx_setup() {
   printf "\n\n"
   sleep 2
   frontend_hostname=$(echo "${frontend_url/https:\/\/}")
+
 sudo su - root << EOF
 cat > /etc/nginx/sites-available/${instancia_add}-frontend << 'END'
 server {
   server_name $frontend_hostname;
   root /home/deploy/${instancia_add}/frontend/build;
   index index.html;
+
+  # Configurações de segurança gerais
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header X-XSS-Protection "1; mode=block" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+  # Configuração de cache para arquivos estáticos
+  location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
+    expires 1y;
+    add_header Cache-Control "public, no-transform";
+  }
+
+  # Configuração principal
   location / {
     try_files \$uri /index.html;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
   }
-  location ~ /\.git {
+
+  # Bloqueio de arquivos sensíveis
+  location ~ /\.(git|env|config|docker) {
     deny all;
+    return 404;
   }
+
+  # Permitir apenas métodos necessários
+  if (\$request_method !~ ^(GET|HEAD|OPTIONS)$) {
+    return 405;
+  }
+
+  # Limitar tamanho de upload
+  client_max_body_size 50M;
 }
 END
 ln -s /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled

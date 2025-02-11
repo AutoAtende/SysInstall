@@ -18,6 +18,7 @@ backend_set_env() {
   printf "\n\n"
   sleep 2
   
+  # Tratamento das URLs
   backend_url=$(echo "${backend_url/https:\/\/}")
   backend_url=${backend_url%%/*}
   backend_url=https://$backend_url
@@ -26,16 +27,37 @@ backend_set_env() {
   frontend_url=${frontend_url%%/*}
   frontend_url=https://$frontend_url
   
+  # Gerar URLs WSS e WS baseadas no backend_url
+  backend_host=$(echo "${backend_url/https:\/\/}")
+  backend_wss="wss://${backend_host}"
+  backend_ws="ws://${backend_host}"
+  
+  # Gerar URL WSS do frontend
+  frontend_host=$(echo "${frontend_url/https:\/\/}")
+  frontend_wss="wss://${frontend_host}"
+  
+  # Gerar secrets
   JWT_SECRET=$(openssl rand -hex 32)
   JWT_REFRESH_SECRET=$(openssl rand -hex 32)
 
 sudo su - deploy << EOF
   cat <<[-]EOF > /home/deploy/${instancia_add}/backend/.env
 NODE_ENV=production
+
+# URLs Base
 BACKEND_URL=${backend_url}
 FRONTEND_URL=${frontend_url}
+
+# URLs WebSocket
+BACKEND_WSS=${backend_wss}
+BACKEND_WS=${backend_ws}
+FRONTEND_WSS=${frontend_wss}
+PROXY_PORT=443
+
+# Porta da aplicação
 PORT=${backend_port}
 
+# Configurações do Banco de Dados
 DB_HOST=localhost
 DB_DIALECT=postgres
 DB_USER=${instancia_add}
@@ -43,14 +65,25 @@ DB_PASS=${mysql_root_password}
 DB_NAME=${instancia_add}
 DB_PORT=5432
 
+# Configurações especificas do AutoAtende
+TIMEOUT_TO_IMPORT_MESSAGE=999
+FLUSH_REDIS_ON_START=false
+DEBUG_TRACE=false
+CHATBOT_RESTRICT_NUMBER=
+
+# Configurações do Redis
 REDIS_URI=redis://:${mysql_root_password}@127.0.0.1:${redis_port}
 REDIS_HOST=127.0.0.1
 REDIS_PORT=${redis_port}
 REDIS_PASSWORD=${mysql_root_password}
+REDIS_OPT_LIMITER_MAX=1
+REDIS_OPT_LIMITER_DURATION=3000
 
+# Limites do sistema
 USER_LIMIT=${max_user}
 CONNECTIONS_LIMIT=${max_whats}
 
+# Secrets
 JWT_SECRET=${JWT_SECRET}
 JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
 [-]EOF
@@ -184,10 +217,20 @@ backend_nginx_setup() {
   printf "\n\n"
   sleep 2
   backend_hostname=$(echo "${backend_url/https:\/\/}")
+
 sudo su - root << EOF
 cat > /etc/nginx/sites-available/${instancia_add}-backend << 'END'
 server {
   server_name $backend_hostname;
+
+  # Configurações de segurança gerais
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header X-XSS-Protection "1; mode=block" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+  # Configuração principal
   location / {
     proxy_pass http://127.0.0.1:${backend_port};
     proxy_http_version 1.1;
@@ -198,13 +241,55 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_cache_bypass \$http_upgrade;
+
+    # Headers CORS
+    add_header 'Access-Control-Allow-Origin' '$frontend_url' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
+    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+    add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization' always;
+
+    # Tratamento especial para OPTIONS
+    if (\$request_method = 'OPTIONS') {
+      add_header 'Access-Control-Allow-Origin' '$frontend_url' always;
+      add_header 'Access-Control-Allow-Credentials' 'true' always;
+      add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization' always;
+      add_header 'Access-Control-Max-Age' 1728000;
+      add_header 'Content-Type' 'text/plain charset=UTF-8';
+      add_header 'Content-Length' 0;
+      return 204;
+    }
   }
-  location ~ /\.git {
+
+  # Configuração específica para WebSocket
+  location /socket.io/ {
+    proxy_pass http://127.0.0.1:${backend_port};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_cache_bypass \$http_upgrade;
+    proxy_buffering off;
+    
+    # Headers CORS para WebSocket
+    add_header 'Access-Control-Allow-Origin' '$frontend_url' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
+  }
+
+  # Bloqueio de arquivos sensíveis
+  location ~ /\.(git|env|config|docker) {
     deny all;
+    return 404;
   }
+
+  # Limitar tamanho de upload
+  client_max_body_size 50M;
 }
 END
 ln -s /etc/nginx/sites-available/${instancia_add}-backend /etc/nginx/sites-enabled
 EOF
   sleep 2
 }
+
