@@ -79,16 +79,21 @@ frontend_set_env() {
   printf "\n\n"
   sleep 2
 
+  # Remove o protocolo e o caminho da URL do frontend
   frontend_url=$(echo "${frontend_url/https:\/\/}")
   frontend_url=${frontend_url%%/*}
   frontend_url=https://$frontend_url
 
-sudo su - deploy << EOF1
+  # Extrai o host do backend_url
+  backend_host=$(echo "${backend_url/https:\/\/}")
+  backend_host=${backend_host%%/*}
+
+  sudo su - deploy << EOF1
   cat <<-EOF2 > /home/deploy/${instancia_add}/frontend/.env
 REACT_APP_BACKEND_URL=${backend_url}
 REACT_APP_FRONTEND_URL=${frontend_url}
 REACT_APP_BACKEND_PROTOCOL=https
-REACT_APP_BACKEND_HOST=${frontend_url}
+REACT_APP_BACKEND_HOST=${backend_host}
 REACT_APP_BACKEND_PORT=443
 REACT_APP_HOURS_CLOSE_TICKETS_AUTO=24
 REACT_APP_LOCALE=pt-br
