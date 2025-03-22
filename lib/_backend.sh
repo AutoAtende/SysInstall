@@ -19,21 +19,21 @@ backend_set_env() {
   sleep 2
 
 sudo su - deploy << EOF
-  cat <<[-]EOF > /home/deploy/${instancia_add}/backend/.env
+  cat <<[-]EOF > /home/deploy/empresa/backend/.env
 NODE_ENV=production
 
 BACKEND_URL=${backend_url}
-BACKEND_PUBLIC_PATH=/home/deploy/${instancia_add}/backend/public
-BACKEND_SESSION_PATH=/home/deploy/${instancia_add}/backend/metadados
+BACKEND_PUBLIC_PATH=/home/deploy/empresa/backend/public
+BACKEND_SESSION_PATH=/home/deploy/empresa/backend/metadados
 FRONTEND_URL=${frontend_url}
 PORT=${backend_port}
 PROXY_PORT=443
 
 DB_HOST=localhost
 DB_DIALECT=postgres
-DB_USER=${instancia_add}
+DB_USER=empresa
 DB_PASS=${mysql_root_password}
-DB_NAME=${instancia_add}
+DB_NAME=empresa
 DB_PORT=5432
 
 TIMEOUT_TO_IMPORT_MESSAGE=999
@@ -65,7 +65,7 @@ backend_node_dependencies() {
   sleep 2
 
 sudo su - deploy <<EOF
-cd /home/deploy/${instancia_add}/backend
+cd /home/deploy/empresa/backend
 mkdir logs
 chmod 775 logs
 mkdir metadados
@@ -93,8 +93,8 @@ EOF
 
   # Ajustando permissões para o nginx acessar os arquivos
   sudo su - root <<EOF
-  chown -R deploy:www-data /home/deploy/${instancia_add}/backend/public
-  chmod -R 775 /home/deploy/${instancia_add}/backend/public
+  chown -R deploy:www-data /home/deploy/empresa/backend/public
+  chmod -R 775 /home/deploy/empresa/backend/public
   usermod -a -G deploy www-data
 EOF
 
@@ -107,7 +107,7 @@ backend_node_build() {
   printf "\n\n"
   sleep 2
 sudo su - deploy <<EOF
-cd /home/deploy/${instancia_add}/backend
+cd /home/deploy/empresa/backend
 npm run build
 cp .env dist/
 rm -rf src
@@ -123,14 +123,14 @@ backend_db_migrate() {
   
   # Criando banco e usuário
   sudo su - postgres <<EOF
-createdb ${instancia_add}
-psql -c "CREATE USER ${instancia_add} WITH ENCRYPTED PASSWORD '${mysql_root_password}' SUPERUSER INHERIT CREATEDB CREATEROLE;"
-psql -c "ALTER DATABASE ${instancia_add} OWNER TO ${instancia_add};"
+createdb empresa
+psql -c "CREATE USER empresa WITH ENCRYPTED PASSWORD '${mysql_root_password}' SUPERUSER INHERIT CREATEDB CREATEROLE;"
+psql -c "ALTER DATABASE empresa OWNER TO empresa;"
 EOF
 
   # Executando migrations
   sudo su - deploy <<EOF
-cd /home/deploy/${instancia_add}/backend
+cd /home/deploy/empresa/backend
 npx sequelize db:migrate
 EOF
   sleep 2
@@ -142,7 +142,7 @@ backend_db_seed() {
   printf "\n\n"
   sleep 2
 sudo su - deploy <<EOF
-cd /home/deploy/${instancia_add}/backend
+cd /home/deploy/empresa/backend
 npx sequelize db:seed:all
 EOF
   sleep 2
@@ -154,10 +154,10 @@ backend_start_pm2() {
   printf "\n\n"
   sleep 2
   sudo su - deploy << EOF
-  cat > /home/deploy/${instancia_add}/backend/ecosystem.config.js << 'END'
+  cat > /home/deploy/empresa/backend/ecosystem.config.js << 'END'
 module.exports = {
   apps: [{
-    name: "${instancia_add}-backend",
+    name: "empresa-backend",
     script: "./dist/server.js",
     node_args: "--expose-gc --max-old-space-size=8192",
     exec_mode: "fork",
@@ -165,15 +165,15 @@ module.exports = {
     max_restarts: 5,
     instances: 1,
     watch: false,
-    error_file: "/home/deploy/${instancia_add}/backend/logs/error.log",
-    out_file: "/home/deploy/${instancia_add}/backend/logs/out.log",
+    error_file: "/home/deploy/empresa/backend/logs/error.log",
+    out_file: "/home/deploy/empresa/backend/logs/out.log",
     env: {
       NODE_ENV: "production"
     }
   }]
 }
 END
-cd /home/deploy/${instancia_add}/backend
+cd /home/deploy/empresa/backend
 pm2 start ecosystem.config.js
 pm2 save
 EOF
@@ -189,7 +189,7 @@ backend_nginx_setup() {
   backend_hostname=$(echo "${backend_url/https:\/\/}")
   
 sudo su - root << EOF
-cat > /etc/nginx/sites-available/${instancia_add}-backend << 'END'
+cat > /etc/nginx/sites-available/empresa-backend << 'END'
 server {
   server_name $backend_hostname;
   
@@ -211,7 +211,7 @@ server {
   }
 }
 END
-ln -s /etc/nginx/sites-available/${instancia_add}-backend /etc/nginx/sites-enabled
+ln -s /etc/nginx/sites-available/empresa-backend /etc/nginx/sites-enabled
 EOF
   sleep 2
 }

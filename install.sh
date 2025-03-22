@@ -18,11 +18,14 @@ source "${PROJECT_ROOT}"/lib/manifest.sh
 # interactive CLI
 inquiry_options
 
-# system config - MOVIDO PARA O INÍCIO
-system_create_user
+
 
 # system installation
 system_update
+
+# Criar usuário antes das dependências
+system_create_user
+
 system_node_install
 system_redis_install
 system_pm2_install

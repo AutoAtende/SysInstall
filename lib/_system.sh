@@ -16,13 +16,18 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando nodejs...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando Node.js 20.17...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   sudo su - root <<EOF
+  # NodeSource para versão específica
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  sudo apt install -y nodejs
-  sudo npm install -g npm@latest
+  sudo apt install -y nodejs=20.17.1-deb-1nodesource1
+  
+  # PM2 global para deploy
+  sudo npm install -g pm2@latest
+  sudo chown -R deploy:deploy /home/deploy/.pm2
+  sudo -u deploy pm2 startup ubuntu -u deploy
   
   # Instalando PostgreSQL 16
   sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -37,12 +42,17 @@ EOF
 
 system_redis_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando e configurando Redis...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando e configurando Redis 7...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   sudo su - root <<EOF
-  # Instalando Redis
-  sudo apt install -y redis-server
+  # Adicionar repositório do Redis
+  curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+  
+  # Instalar Redis 7
+  sudo apt update
+  sudo apt install -y redis-server=7:7.2.4-1rl1~$(lsb_release -cs)1
   
   # Configurando Redis
   sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
@@ -106,11 +116,12 @@ system_create_user() {
 
 system_git_clone() {
   print_banner
-  printf "${WHITE} 💻 Fazendo download do código AutoAtende...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Clonando repositório...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-sudo su - deploy <<EOF
-  git clone -b dev-02-2025 https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/${instancia_add}
+  sudo su - deploy <<EOF
+  mkdir -p /home/deploy/empresa
+  git clone https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/empresa/
 EOF
   sleep 2
 }

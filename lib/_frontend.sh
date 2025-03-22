@@ -7,7 +7,7 @@ frontend_create_manifest() {
   sleep 2
 
 sudo su - deploy << EOF
-  cat > /home/deploy/${instancia_add}/frontend/public/manifest.json << MANIFESTEOF
+  cat > /home/deploy/empresa/frontend/public/manifest.json << MANIFESTEOF
 {
   "short_name": "${empresa_nome}",
   "name": "${empresa_nome}",
@@ -44,7 +44,7 @@ frontend_node_dependencies() {
   printf "\n\n"
   sleep 2
   sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/frontend
+  cd /home/deploy/empresa/frontend
   npm install --legacy-peer-deps
 EOF
   sleep 2
@@ -58,15 +58,15 @@ frontend_node_build() {
   
   # Build
   sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}/frontend
+  cd /home/deploy/empresa/frontend
   npm run build
   rm -rf src
 EOF
 
   # Ajustar permissões
   sudo su - root <<EOF
-  chown -R deploy:deploy /home/deploy/${instancia_add}/
-  chmod -R 755 /home/deploy/${instancia_add}/frontend/build/
+  chown -R deploy:deploy /home/deploy/empresa/
+  chmod -R 755 /home/deploy/empresa/frontend/build/
   usermod -a -G deploy www-data
 EOF
 
@@ -89,7 +89,7 @@ frontend_set_env() {
   backend_host=${backend_host%%/*}
 
   sudo su - deploy << EOF1
-  cat <<-EOF2 > /home/deploy/${instancia_add}/frontend/.env
+  cat <<-EOF2 > /home/deploy/empresa/frontend/.env
 REACT_APP_BACKEND_URL=${backend_url}
 REACT_APP_FRONTEND_URL=${frontend_url}
 REACT_APP_BACKEND_PROTOCOL=https
@@ -113,11 +113,11 @@ frontend_nginx_setup() {
   frontend_hostname=$(echo "${frontend_url/https:\/\/}")
 
 sudo su - root << EOF
-cat > /etc/nginx/sites-available/${instancia_add}-frontend << 'END'
+cat > /etc/nginx/sites-available/empresa-frontend << 'END'
 server {
   server_name $frontend_hostname;
   
-  root /home/deploy/${instancia_add}/frontend/build;
+  root /home/deploy/empresa/frontend/build;
   index index.html;
 
   location / {
@@ -126,7 +126,7 @@ server {
 }
 END
 
-ln -s /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled
+ln -s /etc/nginx/sites-available/empresa-frontend /etc/nginx/sites-enabled
 EOF
 
   sleep 2
