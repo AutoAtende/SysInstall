@@ -140,6 +140,7 @@ inquiry_options() {
     printf "\n\n"
     printf "   [1] Instalar AutoAtende\n"
     printf "   [2] Remover AutoAtende\n"
+    printf "   [3] Limpar Sistema (Desfazer instalação parcial)\n"
     printf "\n"
     read -p "> " option
 
@@ -158,6 +159,9 @@ inquiry_options() {
             ;;
         2)
             software_delete
+            ;;
+        3)
+            system_cleanup
             ;;
         *)
             printf "\n${RED} ⚠️ Opção inválida!${GRAY_LIGHT}"
