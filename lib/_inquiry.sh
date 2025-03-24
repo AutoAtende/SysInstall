@@ -140,7 +140,8 @@ inquiry_options() {
     printf "\n\n"
     printf "   [1] Instalar AutoAtende\n"
     printf "   [2] Remover AutoAtende\n"
-    printf "   [3] Limpar Sistema (Desfazer instalação parcial)\n"
+    printf "   [3] Limpar Sistema (Preparar para nova instalação)\n"
+    printf "   [4] Sair\n"
     printf "\n"
     read -p "> " option
 
@@ -148,7 +149,7 @@ inquiry_options() {
         1) 
             if [ -d "/home/deploy" ] && [ ! -z "$(ls -A /home/deploy/)" ]; then
                 printf "\n${RED} ⚠️ Foi detectada uma instalação existente do AutoAtende!${GRAY_LIGHT}"
-                printf "\n${WHITE} Use a opção 2 para remover a instalação atual antes de prosseguir.${GRAY_LIGHT}"
+                printf "\n${WHITE} Use a opção 2 para remover a instalação atual ou a opção 3 para limpar completamente o sistema.${GRAY_LIGHT}"
                 printf "\n\n"
                 read -p "Pressione ENTER para voltar ao menu principal..."
                 inquiry_options
@@ -162,6 +163,10 @@ inquiry_options() {
             ;;
         3)
             system_cleanup
+            ;;
+        4)
+            printf "\n${GREEN} ✅ Saindo...${GRAY_LIGHT}\n\n"
+            exit 0
             ;;
         *)
             printf "\n${RED} ⚠️ Opção inválida!${GRAY_LIGHT}"

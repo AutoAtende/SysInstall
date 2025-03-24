@@ -57,24 +57,24 @@ EOF
 
 system_redis_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando e configurando Redis 7...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando e configurando Redis...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   sudo su - root <<EOF
   # Adicionar repositório do Redis
   curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
   
-  # Instalar Redis 7
+  # Atualizar e instalar Redis (sem especificar versão exata)
   sudo apt update
-  sudo apt install -y redis-server=7:7.2.4-1rl1~$(lsb_release -cs)1
+  sudo apt install -y redis-server
   
   # Configurando Redis
   sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
   
   # Atualizando configurações do Redis
   sudo sed -i 's/^bind 127.0.0.1/bind 127.0.0.1/' /etc/redis/redis.conf
-  sudo sed -i 's/# requirepass foobared/requirepass ${mysql_root_password}/' /etc/redis/redis.conf
+  sudo sed -i "s/# requirepass foobared/requirepass ${mysql_root_password}/" /etc/redis/redis.conf
   sudo sed -i 's/# maxmemory <bytes>/maxmemory 2gb/' /etc/redis/redis.conf
   sudo sed -i 's/# maxmemory-policy noeviction/maxmemory-policy noeviction/' /etc/redis/redis.conf
   
@@ -90,39 +90,54 @@ system_create_user() {
     printf "${WHITE} 💻 Criando usuário deploy...${GRAY_LIGHT}"
     printf "\n\n"
 
-    # Remover usuário e grupo se existirem (para garantir uma criação limpa)
-    sudo userdel -r deploy >/dev/null 2>&1 || true
+    # Remover usuário e grupo se existirem
+    printf "${WHITE} 🔄 Removendo usuário existente para criar um novo...${GRAY_LIGHT}"
+    sudo userdel -rf deploy >/dev/null 2>&1 || true
     sudo groupdel deploy >/dev/null 2>&1 || true
+    sudo rm -rf /home/deploy >/dev/null 2>&1 || true
+    printf " Feito.\n"
 
     # Criar grupo deploy
-    sudo groupadd deploy || true
+    printf "${WHITE} 🔄 Criando grupo deploy...${GRAY_LIGHT}"
+    sudo groupadd deploy
+    printf " Feito.\n"
 
-    # Criar usuário deploy
+    # Criar usuário deploy com senha definida diretamente
+    printf "${WHITE} 🔄 Criando usuário deploy...${GRAY_LIGHT}"
     sudo useradd -m -s /bin/bash -g deploy deploy
+    printf " Feito.\n"
 
-    # Definir senha usando passwd diretamente
-    echo "${mysql_root_password}\n${mysql_root_password}" | sudo passwd deploy
+    # Definir senha diretamente, sem interação
+    printf "${WHITE} 🔄 Configurando senha...${GRAY_LIGHT}"
+    echo "deploy:${mysql_root_password}" | sudo chpasswd
+    printf " Feito.\n"
 
     # Adicionar ao grupo sudo
+    printf "${WHITE} 🔄 Adicionando ao grupo sudo...${GRAY_LIGHT}"
     sudo usermod -aG sudo deploy
+    printf " Feito.\n"
 
     # Ajustar permissões do diretório home
+    printf "${WHITE} 🔄 Configurando permissões...${GRAY_LIGHT}"
     if [ -d "/home/deploy" ]; then
         sudo chown -R deploy:deploy /home/deploy
         sudo chmod 755 /home/deploy
+        printf " Feito.\n"
     else
-        printf "${RED} ⚠️ Erro: Diretório /home/deploy não foi criado!${GRAY_LIGHT}"
+        printf "\n${RED} ⚠️ Erro: Diretório /home/deploy não foi criado!${GRAY_LIGHT}"
         printf "\n\n"
+        sleep 5
         exit 1
     fi
 
     # Verificar se o usuário foi criado corretamente
     if id "deploy" >/dev/null 2>&1; then
-        printf "${GREEN} ✅ Usuário deploy criado com sucesso!${GRAY_LIGHT}"
+        printf "\n${GREEN} ✅ Usuário deploy criado com sucesso!${GRAY_LIGHT}"
         printf "\n\n"
     else
-        printf "${RED} ⚠️ Erro: Falha ao criar usuário deploy!${GRAY_LIGHT}"
+        printf "\n${RED} ⚠️ Erro: Falha ao criar usuário deploy!${GRAY_LIGHT}"
         printf "\n\n"
+        sleep 5
         exit 1
     fi
 
