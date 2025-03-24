@@ -16,18 +16,33 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando Node.js 20.17...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando NVM e Node.js 20.17...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-  sudo su - root <<EOF
-  # NodeSource para versão específica
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  sudo apt install -y nodejs=20.17.1-deb-1nodesource1
   
-  # PM2 global para deploy
-  sudo npm install -g pm2@latest
+  # Instalando NVM e Node.js para o usuário deploy
+  sudo su - deploy <<EOF
+  # Instalando NVM
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+  
+  # Carregando NVM no ambiente atual
+  export NVM_DIR="\$HOME/.nvm"
+  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+  
+  # Instalando Node.js 20.17 via NVM
+  nvm install 20.17.0
+  nvm use 20.17.0
+  nvm alias default 20.17.0
+EOF
+
+  # Instalando PM2 e configurando
+  sudo su - root <<EOF
+  # Instalando PM2 global para deploy
+  sudo -u deploy bash -c 'export NVM_DIR="/home/deploy/.nvm" && [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh" && npm install -g pm2@latest'
+  
+  # Configurando PM2
   sudo chown -R deploy:deploy /home/deploy/.pm2
-  sudo -u deploy pm2 startup ubuntu -u deploy
+  sudo -u deploy bash -c 'export NVM_DIR="/home/deploy/.nvm" && [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh" && pm2 startup ubuntu -u deploy'
   
   # Instalando PostgreSQL 16
   sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
