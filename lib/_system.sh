@@ -16,42 +16,90 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando NVM e Node.js 20.17...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando Node.js 20.x e PostgreSQL 16...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   
-  # Instalando NVM e Node.js para o usuário deploy
-  sudo su - deploy <<EOF
-  # Instalando NVM
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  
-  # Carregando NVM no ambiente atual
-  export NVM_DIR="\$HOME/.nvm"
-  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-  
-  # Instalando Node.js 20.17 via NVM
-  nvm install 20.17.0
-  nvm use 20.17.0
-  nvm alias default 20.17.0
-EOF
-
-  # Instalando PM2 e configurando
+  # Instalando Node.js diretamente via NodeSource (método mais confiável)
   sudo su - root <<EOF
-  # Instalando PM2 global para deploy
-  sudo -u deploy bash -c 'export NVM_DIR="/home/deploy/.nvm" && [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh" && npm install -g pm2@latest'
+  # Remover versões antigas do Node.js, se existirem
+  apt-get remove -y nodejs npm &>/dev/null || true
   
-  # Configurando PM2
-  sudo chown -R deploy:deploy /home/deploy/.pm2
-  sudo -u deploy bash -c 'export NVM_DIR="/home/deploy/.nvm" && [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh" && pm2 startup ubuntu -u deploy'
+  # Adicionar repositório NodeSource para Node.js 20.x
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  
+  # Instalar Node.js
+  apt-get install -y nodejs
+  
+  # Verificar a instalação
+  node -v
+  npm -v
+  
+  # Instalar PM2 globalmente para todos os usuários
+  npm install -g pm2@latest
+  
+  # Garantir que o usuário deploy possa executar PM2
+  if id "deploy" &>/dev/null; then
+    chown -R deploy:deploy /home/deploy/.pm2 &>/dev/null || true
+    pm2 startup ubuntu -u deploy || true
+    env PATH=\$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+  fi
   
   # Instalando PostgreSQL 16
+  printf "\n${WHITE} 💻 Instalando PostgreSQL 16...${GRAY_LIGHT}"
   sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
   wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
   sudo apt-get update -y
   sudo apt-get -y install postgresql-16
   
+  sudo systemctl enable postgresql
+  sudo systemctl start postgresql
+  
+  # Configurar fuso horário
   sudo timedatectl set-timezone America/Sao_Paulo
 EOF
+
+  # Para usuário deploy, garantir acesso ao Node.js
+  if id "deploy" &>/dev/null; then
+    sudo su - deploy <<EOF
+    # Verificar Node.js
+    node -v
+    npm -v
+EOF
+  fi
+
+  # Verificar que o PM2 está instalado corretamente
+  printf "\n${WHITE} 🔄 Verificando instalação do PM2...${GRAY_LIGHT}\n"
+  if command -v pm2 &>/dev/null; then
+    printf "${GREEN} ✅ PM2 instalado com sucesso!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ Erro: PM2 não foi instalado corretamente.${GRAY_LIGHT}\n"
+    printf "${YELLOW} Tentando instalar novamente...${GRAY_LIGHT}\n"
+    
+    sudo npm install -g pm2@latest
+    
+    if command -v pm2 &>/dev/null; then
+      printf "${GREEN} ✅ PM2 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
+    else
+      printf "${RED} ⚠️ Falha ao instalar PM2. Continuando a instalação...${GRAY_LIGHT}\n"
+    fi
+  fi
+  
+  # Verificar a instalação do PostgreSQL
+  printf "\n${WHITE} 🔄 Verificando instalação do PostgreSQL...${GRAY_LIGHT}\n"
+  if sudo systemctl is-active --quiet postgresql; then
+    printf "${GREEN} ✅ PostgreSQL 16 instalado e rodando!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ PostgreSQL não parece estar funcionando. Tentando iniciar...${GRAY_LIGHT}\n"
+    sudo systemctl start postgresql
+    
+    if sudo systemctl is-active --quiet postgresql; then
+      printf "${GREEN} ✅ PostgreSQL iniciado com sucesso!${GRAY_LIGHT}\n"
+    else
+      printf "${RED} ⚠️ Falha ao iniciar PostgreSQL. Revise a instalação manualmente.${GRAY_LIGHT}\n"
+    fi
+  fi
+  
   sleep 2
 }
 
