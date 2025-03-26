@@ -3,20 +3,33 @@
 clean_redis() {
     printf "\n${WHITE} 🗑️ Limpando Redis...${GRAY_LIGHT}"
     
-    # Encontrar a primeira pasta dentro de /home/deploy
-    instance_dir=$(ls -d /home/deploy/*/ 2>/dev/null | head -n 1)
+    # Encontrar o arquivo .env dentro do diretório backend
+    env_file="/home/deploy/empresa/backend/.env"
     
-    if [ ! -z "$instance_dir" ]; then
+    if [ -f "$env_file" ]; then
         # Extrair a senha do Redis do arquivo .env
-        env_file="${instance_dir}backend/.env"
-        if [ -f "$env_file" ]; then
-            redis_password=$(grep "REDIS_PASSWORD=" "$env_file" | cut -d '=' -f2)
-            
-            if [ ! -z "$redis_password" ]; then
-                # Limpar Redis com autenticação
-                redis-cli -a "$redis_password" FLUSHALL
+        redis_password=$(grep "REDIS_PASSWORD=" "$env_file" | cut -d '=' -f2)
+        
+        if [ ! -z "$redis_password" ]; then
+            printf "\n${YELLOW} Usando senha encontrada no arquivo .env${GRAY_LIGHT}"
+            # Limpar Redis com autenticação
+            redis-cli -a "$redis_password" FLUSHALL
+            if [ $? -eq 0 ]; then
+                printf "\n${GREEN} ✅ Redis limpo com sucesso${GRAY_LIGHT}"
+            else
+                printf "\n${RED} ⚠️ Falha ao limpar Redis com senha do .env${GRAY_LIGHT}"
+                # Tentar com AUTH antes do FLUSHALL
+                redis-cli AUTH "$redis_password" FLUSHALL
             fi
+        else
+            printf "\n${YELLOW} ⚠️ Senha do Redis não encontrada no arquivo .env${GRAY_LIGHT}"
+            # Tentar sem autenticação
+            redis-cli FLUSHALL
         fi
+    else
+        printf "\n${YELLOW} ⚠️ Arquivo .env não encontrado. Tentando limpar Redis sem senha...${GRAY_LIGHT}"
+        # Tentar sem autenticação
+        redis-cli FLUSHALL
     fi
 }
 
@@ -71,16 +84,18 @@ EOF
         printf "\n${YELLOW} ⚠️ PostgreSQL não encontrado, ignorando...${GRAY_LIGHT}"
     fi
 
-    # Limpar Redis (com verificação)
-    printf "\n${WHITE} 🗑️ Limpando Redis...${GRAY_LIGHT}"
-    if command -v redis-cli &>/dev/null; then
-        # Tenta limpar o Redis, sem exigir senha
-        redis-cli FLUSHALL 2>/dev/null || true
-        
-        # Ou tenta parar o serviço
-        sudo systemctl stop redis-server 2>/dev/null || true
+    # Limpar Redis com a função aprimorada
+    clean_redis
+
+    # Verificar quais usuários pertencem ao grupo deploy antes de removê-lo
+    printf "\n${WHITE} 🗑️ Verificando grupo deploy...${GRAY_LIGHT}"
+    deploy_users=$(getent group deploy | cut -d: -f4)
+    
+    if [ "$deploy_users" = "deploy" ]; then
+        printf "\n${GREEN} ✅ Grupo deploy possui apenas o usuário deploy, pode ser removido${GRAY_LIGHT}"
     else
-        printf "\n${YELLOW} ⚠️ Redis não encontrado, ignorando...${GRAY_LIGHT}"
+        printf "\n${YELLOW} ⚠️ Grupo deploy possui outros usuários: ${deploy_users}${GRAY_LIGHT}"
+        printf "\n${WHITE} Removendo usuário deploy do grupo...${GRAY_LIGHT}"
     fi
 
     # Remover diretórios e usuário deploy (com verificação)
@@ -92,12 +107,16 @@ EOF
         # Remover diretório home
         sudo rm -rf /home/deploy 2>/dev/null || true
         
-        # Verificar se o usuário é o único membro do grupo
-        if [ "$(getent group deploy | cut -d: -f4)" = "deploy" ]; then
+        # Verificar se o usuário deploy pode ser removido com seu grupo
+        if [ "$deploy_users" = "deploy" ]; then
+            # Remover usuário e grupo
+            sudo groupdel deploy 2>/dev/null || true
             sudo userdel -rf deploy 2>/dev/null || true
+            printf "\n${GREEN} ✅ Usuário e grupo deploy removidos com sucesso${GRAY_LIGHT}"
         else
+            # Remover apenas o usuário, mantendo o grupo
             sudo userdel -rf deploy 2>/dev/null || true
-            printf "\n${YELLOW} ⚠️ Grupo 'deploy' não removido pois contém outros membros${GRAY_LIGHT}"
+            printf "\n${YELLOW} ⚠️ Usuário deploy removido, mas grupo mantido pois contém outros usuários${GRAY_LIGHT}"
         fi
     else
         printf "\n${YELLOW} ⚠️ Usuário deploy não encontrado, ignorando...${GRAY_LIGHT}"
@@ -134,11 +153,26 @@ system_cleanup() {
         return
     fi
 
+    # Limpar Redis antes de remover (para garantir que tente com a senha)
+    clean_redis
+
     # 1. Remover usuário deploy completamente
     printf "\n${WHITE} 🗑️ Removendo usuário deploy...${GRAY_LIGHT}"
     sudo pkill -u deploy 2>/dev/null || true
-    sudo userdel -rf deploy 2>/dev/null || true
-    sudo groupdel deploy 2>/dev/null || true
+    
+    # Verificar quais usuários pertencem ao grupo deploy
+    deploy_users=$(getent group deploy | cut -d: -f4)
+    
+    # Se apenas o usuário deploy estiver no grupo, remover o grupo também
+    if [ "$deploy_users" = "deploy" ]; then
+        sudo userdel -rf deploy 2>/dev/null || true
+        sudo groupdel deploy 2>/dev/null || true
+        printf "\n${GREEN} ✅ Usuário e grupo deploy removidos${GRAY_LIGHT}"
+    else
+        sudo userdel -rf deploy 2>/dev/null || true
+        printf "\n${YELLOW} ⚠️ Usuário deploy removido, grupo mantido pois contém outros usuários: ${deploy_users}${GRAY_LIGHT}"
+    fi
+    
     sudo rm -rf /home/deploy 2>/dev/null || true
 
     # 2. Limpar PostgreSQL
