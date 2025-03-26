@@ -1,5 +1,41 @@
 #!/bin/bash
 
+frontend_set_env() {
+  print_banner
+  printf "${WHITE} 💻 Configurando variáveis de ambiente (frontend)...${GRAY_LIGHT}"
+  printf "\n\n"
+  sleep 2
+
+  # Verificar se o diretório existe
+  if [ ! -d "/home/deploy/empresa/frontend" ]; then
+    printf "\n${RED} ⚠️ Diretório do frontend não encontrado.${GRAY_LIGHT}"
+    printf "\n\n"
+    sleep 5
+    return 1
+  fi
+
+  # Processamento das URLs
+  frontend_url_clean=$(echo "${frontend_url}")
+  frontend_url_clean=${frontend_url_clean%%/*}
+  frontend_url_full="https://$frontend_url_clean"
+
+  backend_host=$(echo "${backend_url}")
+  backend_host=${backend_host%%/*}
+
+  sudo -u deploy bash -c "cat > /home/deploy/empresa/frontend/.env << EOF
+REACT_APP_BACKEND_URL=${backend_url}
+REACT_APP_FRONTEND_URL=${frontend_url_full}
+REACT_APP_BACKEND_PROTOCOL=https
+REACT_APP_BACKEND_HOST=${backend_host}
+REACT_APP_BACKEND_PORT=443
+REACT_APP_HOURS_CLOSE_TICKETS_AUTO=24
+REACT_APP_LOCALE=pt-br
+REACT_APP_TIMEZONE=America/Sao_Paulo
+EOF"
+
+  sleep 2
+}
+
 frontend_create_manifest() {
   print_banner
   printf "${WHITE} 💻 Criando manifest.json...${GRAY_LIGHT}"
@@ -98,42 +134,6 @@ frontend_node_build() {
   sudo chmod -R 755 /home/deploy/empresa/frontend/build
   
   printf "\n${GREEN} ✅ Código do frontend compilado com sucesso!${GRAY_LIGHT}"
-  sleep 2
-}
-
-frontend_set_env() {
-  print_banner
-  printf "${WHITE} 💻 Configurando variáveis de ambiente (frontend)...${GRAY_LIGHT}"
-  printf "\n\n"
-  sleep 2
-
-  # Verificar se o diretório existe
-  if [ ! -d "/home/deploy/empresa/frontend" ]; then
-    printf "\n${RED} ⚠️ Diretório do frontend não encontrado.${GRAY_LIGHT}"
-    printf "\n\n"
-    sleep 5
-    return 1
-  fi
-
-  # Processamento das URLs
-  frontend_url_clean=$(echo "${frontend_url}" | sed 's~^https://~~')
-  frontend_url_clean=${frontend_url_clean%%/*}
-  frontend_url_full="https://$frontend_url_clean"
-
-  backend_host=$(echo "${backend_url}" | sed 's~^https://~~')
-  backend_host=${backend_host%%/*}
-
-  sudo -u deploy bash -c "cat > /home/deploy/empresa/frontend/.env << EOF
-REACT_APP_BACKEND_URL=${backend_url}
-REACT_APP_FRONTEND_URL=${frontend_url_full}
-REACT_APP_BACKEND_PROTOCOL=https
-REACT_APP_BACKEND_HOST=${backend_host}
-REACT_APP_BACKEND_PORT=443
-REACT_APP_HOURS_CLOSE_TICKETS_AUTO=24
-REACT_APP_LOCALE=pt-br
-REACT_APP_TIMEZONE=America/Sao_Paulo
-EOF"
-
   sleep 2
 }
 
