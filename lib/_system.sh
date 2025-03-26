@@ -192,15 +192,57 @@ system_create_user() {
     sleep 2
 }
 
+system_generate_jwt_secrets() {
+  if [ -z "$JWT_SECRET" ]; then
+    JWT_SECRET=$(openssl rand -hex 32)
+  fi
+  
+  if [ -z "$JWT_REFRESH_SECRET" ]; then
+    JWT_REFRESH_SECRET=$(openssl rand -hex 32)
+  fi
+}
+
 system_git_clone() {
   print_banner
   printf "${WHITE} 💻 Clonando repositório...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-  sudo su - deploy <<EOF
-  mkdir -p /home/deploy/empresa
-  git clone https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/empresa/
-EOF
+  
+  # Verificar se o token foi definido
+  if [ -z "$token_code" ]; then
+    printf "\n${RED} ⚠️ Token não definido. Não é possível clonar o repositório.${GRAY_LIGHT}"
+    printf "\n\n"
+    sleep 5
+    return 1
+  fi
+  
+  # Limpar qualquer instalação anterior
+  sudo rm -rf /home/deploy/empresa
+  
+  # Criar diretório base
+  sudo mkdir -p /home/deploy/empresa
+  sudo chown -R deploy:deploy /home/deploy/empresa
+  
+  # Tentar clonar o repositório
+  if sudo -u deploy git clone https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/empresa/ ; then
+    printf "\n${GREEN} ✅ Repositório clonado com sucesso!${GRAY_LIGHT}"
+  else
+    printf "\n${RED} ⚠️ Falha ao clonar o repositório. Verificando conectividade...${GRAY_LIGHT}"
+    
+    # Verificar conectividade
+    if ping -c 1 github.com &> /dev/null; then
+      printf "\n${YELLOW} Conexão com github.com está funcionando. Problema pode ser com o token.${GRAY_LIGHT}"
+    else
+      printf "\n${RED} Sem conectividade com github.com. Verifique sua conexão.${GRAY_LIGHT}"
+    fi
+    
+    sleep 5
+    return 1
+  fi
+  
+  # Garantir permissões corretas
+  sudo chown -R deploy:deploy /home/deploy/empresa
+  
   sleep 2
 }
 
@@ -275,11 +317,25 @@ system_certbot_install() {
   printf "${WHITE} 💻 Instalando certbot...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-  sudo su - root <<EOF
-  apt-get remove certbot
-  snap install --classic certbot
-  ln -s /snap/bin/certbot /usr/bin/certbot
-EOF
+  
+  # Remover instalação anterior do certbot
+  sudo apt-get remove -y certbot &>/dev/null || true
+  
+  # Instalar via snap
+  sudo snap install --classic certbot
+  
+  # Criar link simbólico
+  sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+  
+  # Verificar instalação
+  if command -v certbot &> /dev/null; then
+    printf "\n${GREEN} ✅ Certbot instalado com sucesso!${GRAY_LIGHT}"
+  else
+    printf "\n${RED} ⚠️ Falha ao instalar Certbot. Tentando método alternativo...${GRAY_LIGHT}"
+    sudo apt-get update
+    sudo apt-get install -y certbot python3-certbot-nginx
+  fi
+  
   sleep 2
 }
 
@@ -312,19 +368,58 @@ system_certbot_setup() {
   printf "${WHITE} 💻 Configurando certbot, Já estamos perto do fim...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-  frontend_domain=$(echo "${frontend_url/https:\/\/}")
-  backend_domain=$(echo "${backend_url/https:\/\/}")
-  sudo su - root <<EOF
-  certbot -m $deploy_email \
-          --nginx \
-          --agree-tos \
-          --non-interactive \
-          --domains $frontend_domain $backend_domain
-EOF
+  
+  # Extrair domínios sem o protocolo https://
+  frontend_domain=$(echo "${frontend_url}" | sed 's~^https://~~')
+  backend_domain=$(echo "${backend_url}" | sed 's~^https://~~')
+  
+  # Verificar se os domínios foram extraídos corretamente
+  if [ -z "$frontend_domain" ] || [ -z "$backend_domain" ]; then
+    printf "\n${RED} ⚠️ Erro ao extrair domínios das URLs. Verifique as URLs fornecidas.${GRAY_LIGHT}"
+    printf "\n Frontend: ${frontend_url}"
+    printf "\n Backend: ${backend_url}"
+    sleep 5
+    return 1
+  fi
+  
+  # Verificar se o nginx está rodando
+  if ! sudo systemctl is-active --quiet nginx; then
+    printf "\n${RED} ⚠️ Nginx não está rodando. Tentando iniciar...${GRAY_LIGHT}"
+    sudo systemctl start nginx
+    sleep 3
+    
+    if ! sudo systemctl is-active --quiet nginx; then
+      printf "\n${RED} ⚠️ Falha ao iniciar Nginx. Certbot pode falhar.${GRAY_LIGHT}"
+      sleep 5
+    fi
+  fi
+  
+  # Configurar um email para o certbot
+  if [ -z "$deploy_email" ]; then
+    deploy_email="admin@${frontend_domain}"
+    printf "\n${YELLOW} ⚠️ Email não definido. Usando ${deploy_email} como padrão.${GRAY_LIGHT}"
+  fi
+  
+  # Executar certbot para os domínios
+  printf "\n${WHITE} 🔄 Executando certbot para ${frontend_domain} e ${backend_domain}...${GRAY_LIGHT}"
+  sudo certbot --nginx --agree-tos --non-interactive -m "${deploy_email}" --domains "${frontend_domain},${backend_domain}" --redirect
+  
+  # Verificar resultado
+  if [ $? -eq 0 ]; then
+    printf "\n${GREEN} ✅ Certificados SSL instalados com sucesso!${GRAY_LIGHT}"
+  else
+    printf "\n${RED} ⚠️ Falha ao instalar certificados SSL. Tentando método alternativo...${GRAY_LIGHT}"
+    
+    # Tentar executar para cada domínio separadamente
+    sudo certbot --nginx --agree-tos --non-interactive -m "${deploy_email}" --domains "${frontend_domain}" --redirect
+    sudo certbot --nginx --agree-tos --non-interactive -m "${deploy_email}" --domains "${backend_domain}" --redirect
+  fi
+  
+  # Reiniciar nginx para aplicar as alterações
+  sudo systemctl restart nginx
+  
   sleep 2
 }
-
-#!/bin/bash
 
 system_delete() {
   print_banner

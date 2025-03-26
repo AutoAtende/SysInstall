@@ -27,19 +27,6 @@ get_mysql_root_password() {
   fi
 }
 
-get_instancia_add() {
-  print_banner
-  printf "${WHITE} 💻 Digite o nome da empresa/instância (letras minúsculas, sem espaços/caracteres especiais):${GRAY_LIGHT}"
-  printf "\n\n"
-  read -p "> " instancia_add
-
-  if [[ ! $instancia_add =~ ^[a-z0-9]+$ ]]; then
-    printf "\n${RED} ⚠️ Use apenas letras minúsculas e números!${GRAY_LIGHT}"
-    printf "\n\n"
-    get_instancia_add
-  fi
-}
-
 get_empresa_nome() {
   print_banner
   printf "${WHITE} 💻 Digite o nome da empresa para o PWA (Nome que aparecerá no celular):${GRAY_LIGHT}"
@@ -99,12 +86,12 @@ set_default_variables() {
   max_user=1000
   backend_port=4029
   redis_port=6379
+  instancia_add=empresa
 }
 
 get_urls() {
   get_mysql_root_password
   get_token_code
-  get_instancia_add
   get_empresa_nome
   get_frontend_url
   get_backend_url

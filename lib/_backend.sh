@@ -9,6 +9,13 @@ backend_redis_setup() {
   # Verificando se o Redis está rodando
   sudo systemctl status redis-server --no-pager
   
+  if [ $? -ne 0 ]; then
+    printf "\n${RED} ⚠️ Redis não está rodando. Tentando reiniciar...${GRAY_LIGHT}"
+    sudo systemctl restart redis-server
+    sleep 2
+    sudo systemctl status redis-server --no-pager
+  fi
+  
   sleep 2
 }
 
@@ -18,7 +25,20 @@ backend_set_env() {
   printf "\n\n"
   sleep 2
 
-sudo su - deploy << EOF
+  # Verificar se o diretório existe
+  if [ ! -d "/home/deploy/empresa/backend" ]; then
+    printf "\n${RED} ⚠️ Diretório do backend não encontrado. Verifique se o repositório foi clonado corretamente.${GRAY_LIGHT}"
+    printf "\n\n"
+    sleep 5
+    return 1
+  fi
+
+  sudo su - deploy << EOF
+  # Verificar se já existe um arquivo .env e fazer backup
+  if [ -f "/home/deploy/empresa/backend/.env" ]; then
+    cp /home/deploy/empresa/backend/.env /home/deploy/empresa/backend/.env.backup
+  fi
+  
   cat <<[-]EOF > /home/deploy/empresa/backend/.env
 NODE_ENV=production
 
@@ -64,39 +84,44 @@ backend_node_dependencies() {
   printf "\n\n"
   sleep 2
 
-sudo su - deploy <<EOF
-cd /home/deploy/empresa/backend
-mkdir logs
-chmod 775 logs
-mkdir metadados
-chmod 775 metadados
-mkdir public
-chmod 775 public
-mkdir -p public/company1
-chmod 775 public/company1
-mkdir -p public/company1/medias
-chmod 775 public/company1/medias
-mkdir -p public/company1/tasks
-chmod 775 public/company1/tasks
-mkdir -p public/company1/announcements
-chmod 775 public/company1/announcements
-mkdir -p public/company1/logos
-chmod 775 public/company1/logos
-mkdir -p public/company1/backgrounds
-chmod 775 public/company1/backgrounds
-mkdir -p public/company1/quickMessages
-chmod 775 public/company1/quickMessages
-mkdir -p public/company1/profile
-chmod 775 public/company1/profile
-npm install
-EOF
+  # Verificar se o diretório existe
+  if [ ! -d "/home/deploy/empresa/backend" ]; then
+    printf "\n${RED} ⚠️ Diretório do backend não encontrado. Verifique se o repositório foi clonado corretamente.${GRAY_LIGHT}"
+    printf "\n\n"
+    sleep 5
+    return 1
+  fi
 
-  # Ajustando permissões para o nginx acessar os arquivos
-  sudo su - root <<EOF
-  chown -R deploy:www-data /home/deploy/empresa/backend/public
-  chmod -R 775 /home/deploy/empresa/backend/public
-  usermod -a -G deploy www-data
-EOF
+  # Criar diretórios necessários e definir permissões
+  sudo mkdir -p /home/deploy/empresa/backend/logs
+  sudo mkdir -p /home/deploy/empresa/backend/metadados
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/medias
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/tasks
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/announcements
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/logos
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/backgrounds
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/quickMessages
+  sudo mkdir -p /home/deploy/empresa/backend/public/company1/profile
+  
+  # Ajustar permissões
+  sudo chown -R deploy:deploy /home/deploy/empresa/
+  
+  # Instalar dependências
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install"
+  
+  # Verificar resultado
+  if [ $? -ne 0 ]; then
+    printf "\n${RED} ⚠️ Erro ao instalar dependências do backend${GRAY_LIGHT}"
+    
+    # Tentar novamente com --force
+    printf "\n${YELLOW} Tentando novamente com --force...${GRAY_LIGHT}"
+    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install --force"
+  fi
+
+  # Ajustar permissões para o nginx
+  sudo chown -R deploy:www-data /home/deploy/empresa/backend/public
+  sudo chmod -R 775 /home/deploy/empresa/backend/public
+  sudo usermod -a -G deploy www-data
 
   sleep 2
 }
@@ -106,12 +131,26 @@ backend_node_build() {
   printf "${WHITE} 💻 Compilando o código do backend...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-sudo su - deploy <<EOF
-cd /home/deploy/empresa/backend
-npm run build
-cp .env dist/
-rm -rf src
-EOF
+  
+  # Verificar se o diretório node_modules existe
+  if [ ! -d "/home/deploy/empresa/backend/node_modules" ]; then
+    printf "\n${YELLOW} ⚠️ Diretório node_modules não encontrado. Executando npm install novamente...${GRAY_LIGHT}"
+    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install"
+  fi
+  
+  # Executar build
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm run build"
+  
+  # Verificar se o build foi concluído com sucesso
+  if [ ! -d "/home/deploy/empresa/backend/dist" ]; then
+    printf "\n${RED} ⚠️ Falha ao compilar o código do backend.${GRAY_LIGHT}"
+    return 1
+  fi
+  
+  # Copiar .env para dist
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && cp .env dist/"
+  
+  printf "\n${GREEN} ✅ Código do backend compilado com sucesso!${GRAY_LIGHT}"
   sleep 2
 }
 
@@ -121,18 +160,29 @@ backend_db_migrate() {
   printf "\n\n"
   sleep 2
   
-  # Criando banco e usuário
+  # Verificar se o PostgreSQL está rodando
+  if ! sudo systemctl is-active --quiet postgresql; then
+    printf "\n${RED} ⚠️ PostgreSQL não está rodando. Tentando iniciar...${GRAY_LIGHT}"
+    sudo systemctl start postgresql
+    sleep 3
+  fi
+  
+  # Criar banco e usuário
   sudo su - postgres <<EOF
-createdb empresa
-psql -c "CREATE USER empresa WITH ENCRYPTED PASSWORD '${mysql_root_password}' SUPERUSER INHERIT CREATEDB CREATEROLE;"
-psql -c "ALTER DATABASE empresa OWNER TO empresa;"
+createdb empresa 2>/dev/null || echo "Banco 'empresa' já existe ou erro ao criar"
+psql -c "CREATE USER empresa WITH ENCRYPTED PASSWORD '${mysql_root_password}' SUPERUSER INHERIT CREATEDB CREATEROLE;" 2>/dev/null || echo "Usuário 'empresa' já existe ou erro ao criar"
+psql -c "ALTER DATABASE empresa OWNER TO empresa;" 2>/dev/null
 EOF
 
-  # Executando migrations
-  sudo su - deploy <<EOF
-cd /home/deploy/empresa/backend
-npx sequelize db:migrate
-EOF
+  # Executar migrations
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npx sequelize db:migrate"
+  
+  if [ $? -ne 0 ]; then
+    printf "\n${RED} ⚠️ Erro ao executar migrations. Tentando instalar sequelize-cli e tentar novamente...${GRAY_LIGHT}"
+    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install --save-dev sequelize-cli && npx sequelize db:migrate"
+  fi
+  
+  printf "\n${GREEN} ✅ Migrations executadas!${GRAY_LIGHT}"
   sleep 2
 }
 
@@ -141,10 +191,16 @@ backend_db_seed() {
   printf "${WHITE} 💻 Executando db:seed...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-sudo su - deploy <<EOF
-cd /home/deploy/empresa/backend
-npx sequelize db:seed:all
-EOF
+  
+  # Executar seeds
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npx sequelize db:seed:all"
+  
+  if [ $? -ne 0 ]; then
+    printf "\n${RED} ⚠️ Erro ao executar seeds. Tentando novamente...${GRAY_LIGHT}"
+    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npx sequelize db:seed:all --force"
+  fi
+  
+  printf "\n${GREEN} ✅ Seeds executados!${GRAY_LIGHT}"
   sleep 2
 }
 
@@ -153,30 +209,50 @@ backend_start_pm2() {
   printf "${WHITE} 💻 Iniciando pm2 (backend)...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
-  sudo su - deploy << EOF
-  cat > /home/deploy/empresa/backend/ecosystem.config.js << 'END'
+  
+  # Verificar se o PM2 está instalado globalmente
+  if ! command -v pm2 &> /dev/null; then
+    printf "\n${RED} ⚠️ PM2 não encontrado. Instalando...${GRAY_LIGHT}"
+    sudo npm install -g pm2@latest
+  fi
+  
+  # Configurar PM2 para o usuário deploy
+  sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+  
+  # Criar arquivo de configuração PM2
+  sudo -u deploy bash -c "cat > /home/deploy/empresa/backend/ecosystem.config.js << 'END'
 module.exports = {
   apps: [{
-    name: "empresa-backend",
-    script: "./dist/server.js",
-    node_args: "--expose-gc --max-old-space-size=8192",
-    exec_mode: "fork",
-    max_memory_restart: "6G",
+    name: \"empresa-backend\",
+    script: \"./dist/server.js\",
+    node_args: \"--expose-gc --max-old-space-size=8192\",
+    exec_mode: \"fork\",
+    max_memory_restart: \"6G\",
     max_restarts: 5,
     instances: 1,
     watch: false,
-    error_file: "/home/deploy/empresa/backend/logs/error.log",
-    out_file: "/home/deploy/empresa/backend/logs/out.log",
+    error_file: \"/home/deploy/empresa/backend/logs/error.log\",
+    out_file: \"/home/deploy/empresa/backend/logs/out.log\",
     env: {
-      NODE_ENV: "production"
+      NODE_ENV: \"production\"
     }
   }]
 }
-END
-cd /home/deploy/empresa/backend
-pm2 start ecosystem.config.js
-pm2 save
-EOF
+END"
+
+  # Parar aplicação anterior, se existir
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && pm2 delete empresa-backend 2>/dev/null || true"
+  
+  # Iniciar aplicação e salvar configuração
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && pm2 start ecosystem.config.js && pm2 save"
+  
+  # Verificar se o processo foi iniciado corretamente
+  if sudo -u deploy bash -c "pm2 list | grep -q empresa-backend"; then
+    printf "\n${GREEN} ✅ Backend iniciado com PM2 com sucesso!${GRAY_LIGHT}"
+  else
+    printf "\n${RED} ⚠️ Erro ao iniciar o backend com PM2. Verifique os logs.${GRAY_LIGHT}"
+  fi
+  
   sleep 2
 }
 
@@ -186,32 +262,31 @@ backend_nginx_setup() {
   printf "\n\n"
   sleep 2
 
-  backend_hostname=$(echo "${backend_url/https:\/\/}")
+  backend_hostname=$(echo "${backend_url}" | sed 's~^https://~~')
   
-sudo su - root << EOF
-cat > /etc/nginx/sites-available/empresa-backend << 'END'
+  sudo bash -c "cat > /etc/nginx/sites-available/empresa-backend << EOF
 server {
-  server_name $backend_hostname;
+  server_name ${backend_hostname};
   
   location / {
     proxy_pass http://127.0.0.1:${backend_port};
     proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Upgrade \\\$http_upgrade;
     proxy_set_header Connection 'upgrade';
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_cache_bypass \$http_upgrade;
+    proxy_set_header Host \\\$host;
+    proxy_set_header X-Real-IP \\\$remote_addr;
+    proxy_set_header X-Forwarded-Proto \\\$scheme;
+    proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+    proxy_cache_bypass \\\$http_upgrade;
   }
 
   # Bloquear solicitações de arquivos do GitHub
-  location ~ /\.git {
+  location ~ /\\.git {
     deny all;
   }
 }
-END
-ln -s /etc/nginx/sites-available/empresa-backend /etc/nginx/sites-enabled
-EOF
+EOF"
+
+  sudo ln -sf /etc/nginx/sites-available/empresa-backend /etc/nginx/sites-enabled/
   sleep 2
 }
