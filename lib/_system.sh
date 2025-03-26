@@ -108,27 +108,50 @@ system_redis_install() {
   printf "${WHITE} 💻 Instalando e configurando Redis...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
+  
   sudo su - root <<EOF
-  # Adicionar repositório do Redis
-  curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+  # Remover chave antiga se existir para evitar o prompt
+  rm -f /usr/share/keyrings/redis-archive-keyring.gpg
   
-  # Atualizar e instalar Redis (sem especificar versão exata)
-  sudo apt update
-  sudo apt install -y redis-server
+  # Adicionar repositório do Redis com tratamento adequado para evitar prompts
+  curl -fsSL https://packages.redis.io/gpg | gpg --yes --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list > /dev/null
   
-  # Configurando Redis
-  sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
+  # Atualizar e instalar Redis
+  apt-get update -y
+  apt-get install -y redis-server
+  
+  # Configurando Redis - fazer backup da configuração original
+  if [ -f "/etc/redis/redis.conf" ]; then
+    cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
+  fi
   
   # Atualizando configurações do Redis
-  sudo sed -i 's/^bind 127.0.0.1/bind 127.0.0.1/' /etc/redis/redis.conf
-  sudo sed -i "s/# requirepass foobared/requirepass ${mysql_root_password}/" /etc/redis/redis.conf
-  sudo sed -i 's/# maxmemory <bytes>/maxmemory 2gb/' /etc/redis/redis.conf
-  sudo sed -i 's/# maxmemory-policy noeviction/maxmemory-policy noeviction/' /etc/redis/redis.conf
+  # Usando variáveis de senha escapadas para evitar problemas com caracteres especiais
+  PASSWORD="\${mysql_root_password}"
+  sed -i 's/^bind 127.0.0.1/bind 127.0.0.1/' /etc/redis/redis.conf
+  sed -i "s/# requirepass foobared/requirepass \${PASSWORD}/" /etc/redis/redis.conf
+  sed -i 's/# maxmemory <bytes>/maxmemory 2gb/' /etc/redis/redis.conf
+  sed -i 's/# maxmemory-policy noeviction/maxmemory-policy noeviction/' /etc/redis/redis.conf
   
   # Reiniciando serviço
-  sudo systemctl enable redis-server
-  sudo systemctl restart redis-server
+  systemctl enable redis-server
+  systemctl restart redis-server
+  
+  # Verificar se o Redis está rodando
+  if systemctl is-active --quiet redis-server; then
+    echo "✅ Redis instalado e iniciado com sucesso!"
+  else
+    echo "⚠️ Erro ao iniciar o Redis. Tentando novamente..."
+    systemctl restart redis-server
+    sleep 3
+    
+    if systemctl is-active --quiet redis-server; then
+      echo "✅ Redis iniciado com sucesso após segunda tentativa!"
+    else
+      echo "⚠️ Falha ao iniciar o Redis. Instalação pode estar comprometida."
+    fi
+  fi
 EOF
   sleep 2
 }
