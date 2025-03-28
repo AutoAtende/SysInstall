@@ -126,11 +126,14 @@ system_redis_install() {
     cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
   fi
   
-  # Atualizando configurações do Redis
-  # Usando variáveis de senha escapadas para evitar problemas com caracteres especiais
-  PASSWORD="\${mysql_root_password}"
-  sed -i 's/^bind 127.0.0.1/bind 127.0.0.1/' /etc/redis/redis.conf
-  sed -i "s/# requirepass foobared/requirepass \${PASSWORD}/" /etc/redis/redis.conf
+  # Modificar a configuração do Redis diretamente no arquivo
+  # Corrigindo a linha bind para usar apenas 127.0.0.1
+  sed -i 's/^bind 127.0.0.1 -::1/bind 127.0.0.1/' /etc/redis/redis.conf
+  
+  # Configurando a senha do Redis - usando a mesma do usuário deploy
+  sed -i "s/# requirepass foobared/requirepass ${mysql_root_password}/" /etc/redis/redis.conf
+  
+  # Configurações adicionais
   sed -i 's/# maxmemory <bytes>/maxmemory 2gb/' /etc/redis/redis.conf
   sed -i 's/# maxmemory-policy noeviction/maxmemory-policy noeviction/' /etc/redis/redis.conf
   
