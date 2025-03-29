@@ -20,6 +20,11 @@ backend_redis_setup() {
 }
 
 backend_set_env() {
+
+backend_url_full=$(echo "${backend_url}" | grep -q "^https://" && echo "${backend_url}" || echo "https://${backend_url}")
+frontend_url_full=$(echo "${frontend_url}" | grep -q "^https://" && echo "${frontend_url}" || echo "https://${frontend_url}")
+
+
   print_banner
   printf "${WHITE} 💻 Configurando variáveis de ambiente (backend)...${GRAY_LIGHT}"
   printf "\n\n"
@@ -42,10 +47,10 @@ backend_set_env() {
   cat <<[-]EOF > /home/deploy/empresa/backend/.env
 NODE_ENV=production
 
-BACKEND_URL=${backend_url}
+BACKEND_URL=${backend_url_full}
 BACKEND_PUBLIC_PATH=/home/deploy/empresa/backend/public
 BACKEND_SESSION_PATH=/home/deploy/empresa/backend/metadados
-FRONTEND_URL=${frontend_url}
+FRONTEND_URL=${frontend_url_full}
 PORT=${backend_port}
 PROXY_PORT=443
 

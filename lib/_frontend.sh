@@ -22,8 +22,11 @@ frontend_set_env() {
   backend_host=$(echo "${backend_url}")
   backend_host=${backend_host%%/*}
 
+  backend_url_full=$(echo "${backend_url}" | grep -q "^https://" && echo "${backend_url}" || echo "https://${backend_url}")
+
+
   sudo -u deploy bash -c "cat > /home/deploy/empresa/frontend/.env << EOF
-REACT_APP_BACKEND_URL=${backend_url}
+REACT_APP_BACKEND_URL=${backend_url_full}
 REACT_APP_FRONTEND_URL=${frontend_url_full}
 REACT_APP_BACKEND_PROTOCOL=https
 REACT_APP_BACKEND_HOST=${backend_host}
@@ -152,13 +155,72 @@ server {
   root /home/deploy/empresa/frontend/build;
   index index.html;
 
+  # Configuração para o arquivo index.html (sem cache)
+  location = /index.html {
+    add_header Cache-Control \"no-cache, no-store, must-revalidate\";
+    add_header Pragma \"no-cache\";
+    add_header Expires 0;
+  }
+
+  # Configuração para rotas do React (SPA)
   location / {
-    try_files \\\$uri /index.html;
+    try_files \\\$uri \\\$uri/ /index.html;
+    
+    # Sem cache para HTML
+    if (\\\$request_filename ~* ^.*\\.(html|htm)\\\$) {
+      add_header Cache-Control \"no-cache, no-store, must-revalidate\";
+      add_header Pragma \"no-cache\";
+      add_header Expires 0;
+    }
+  }
+
+  # Arquivos de configuração dinâmicos que não devem ser cacheados
+  location ~* ^/config\\.js\\\$ {
+    add_header Cache-Control \"no-cache, no-store, must-revalidate\";
+    add_header Pragma \"no-cache\";
+    add_header Expires 0;
+  }
+  
+  # Assets com hash no nome podem ser cacheados a longo prazo
+  location ~* \\.([0-9a-f]{8,})\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2)\\\$ {
+    expires 1y;
+    add_header Cache-Control \"public, immutable\";
+  }
+  
+  # Assets estáticos regulares (sem hash no nome)
+  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)\\\$ {
+    expires 7d;
+    add_header Cache-Control \"public, max-age=604800\";
+  }
+  
+  # Configuração de compressão
+  gzip on;
+  gzip_comp_level 6;
+  gzip_min_length 1000;
+  gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+  
+  # Bloquear acesso a arquivos ocultos
+  location ~ /\\. {
+    deny all;
+    access_log off;
+    log_not_found off;
   }
 }
 EOF"
 
   sudo ln -sf /etc/nginx/sites-available/empresa-frontend /etc/nginx/sites-enabled/
+  
+  # Testa a configuração do Nginx
+  sudo nginx -t
+  
+  # Reinicia o Nginx apenas se a configuração estiver correta
+  if [ $? -eq 0 ]; then
+    sudo systemctl reload nginx
+    printf "${GREEN} ✅ Nginx configurado e reiniciado com sucesso!${GRAY_LIGHT}"
+  else
+    printf "${RED} ❌ Erro na configuração do Nginx. Verifique a sintaxe.${GRAY_LIGHT}"
+  fi
+  
   sleep 2
 }
 
