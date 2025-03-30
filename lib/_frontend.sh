@@ -146,9 +146,9 @@ frontend_nginx_setup() {
   printf "\n\n"
   sleep 2
 
-  frontend_hostname=$(echo "${frontend_url}" | sed 's~^https://~~')
+  frontend_hostname=$(echo "${frontend_url}" | sed 's~^https://~~' | sed 's~/.*$~~')
 
-  sudo bash -c "cat > /etc/nginx/sites-available/empresa-frontend << EOF
+  sudo bash -c "cat > /etc/nginx/sites-available/empresa-frontend << 'EOF'
 server {
   server_name ${frontend_hostname};
   
@@ -164,10 +164,10 @@ server {
 
   # Configuração para rotas do React (SPA)
   location / {
-    try_files \\\$uri \\\$uri/ /index.html;
+    try_files \$uri \$uri/ /index.html;
     
     # Sem cache para HTML
-    if (\\\$request_filename ~* ^.*\\.(html|htm)\\\$) {
+    if (\$request_filename ~* ^.*\\.(html|htm)\$) {
       add_header Cache-Control \"no-cache, no-store, must-revalidate\";
       add_header Pragma \"no-cache\";
       add_header Expires 0;
@@ -175,20 +175,20 @@ server {
   }
 
   # Arquivos de configuração dinâmicos que não devem ser cacheados
-  location ~* ^/config\\.js\\\$ {
+  location ~* ^/config\\.js\$ {
     add_header Cache-Control \"no-cache, no-store, must-revalidate\";
     add_header Pragma \"no-cache\";
     add_header Expires 0;
   }
   
   # Assets com hash no nome podem ser cacheados a longo prazo
-  location ~* \\.([0-9a-f]{8,})\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2)\\\$ {
+  location ~* \\.([0-9a-f]{8,})\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2)\$ {
     expires 1y;
     add_header Cache-Control \"public, immutable\";
   }
   
   # Assets estáticos regulares (sem hash no nome)
-  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)\\\$ {
+  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)\$ {
     expires 7d;
     add_header Cache-Control \"public, max-age=604800\";
   }
