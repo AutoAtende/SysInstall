@@ -148,49 +148,31 @@ frontend_nginx_setup() {
 
   frontend_hostname=$(echo "${frontend_url}" | sed 's~^https://~~' | sed 's~/.*$~~')
 
-  sudo bash -c "cat > /etc/nginx/sites-available/empresa-frontend << 'EOF'
+  # Criando um arquivo temporário com a configuração correta
+  cat > /tmp/nginx-frontend-config << 'EOFNGINX'
 server {
-  server_name ${frontend_hostname};
+  server_name FRONTEND_HOSTNAME_PLACEHOLDER;
   
   root /home/deploy/empresa/frontend/build;
   index index.html;
 
   # Configuração para o arquivo index.html (sem cache)
   location = /index.html {
-    add_header Cache-Control \"no-cache, no-store, must-revalidate\";
-    add_header Pragma \"no-cache\";
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header Pragma "no-cache";
     add_header Expires 0;
   }
 
   # Configuração para rotas do React (SPA)
   location / {
-    try_files \$uri \$uri/ /index.html;
+    try_files $uri $uri/ /index.html;
     
     # Sem cache para HTML
-    if (\$request_filename ~* ^.*\\.(html|htm)\$) {
-      add_header Cache-Control \"no-cache, no-store, must-revalidate\";
-      add_header Pragma \"no-cache\";
+    if ($request_filename ~* ^.*\.(html|htm)$) {
+      add_header Cache-Control "no-cache, no-store, must-revalidate";
+      add_header Pragma "no-cache";
       add_header Expires 0;
     }
-  }
-
-  # Arquivos de configuração dinâmicos que não devem ser cacheados
-  location ~* ^/config\\.js\$ {
-    add_header Cache-Control \"no-cache, no-store, must-revalidate\";
-    add_header Pragma \"no-cache\";
-    add_header Expires 0;
-  }
-  
-  # Assets com hash no nome podem ser cacheados a longo prazo
-  location ~* \\.([0-9a-f]{8,})\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff2)\$ {
-    expires 1y;
-    add_header Cache-Control \"public, immutable\";
-  }
-  
-  # Assets estáticos regulares (sem hash no nome)
-  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)\$ {
-    expires 7d;
-    add_header Cache-Control \"public, max-age=604800\";
   }
   
   # Configuração de compressão
@@ -200,26 +182,66 @@ server {
   gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
   
   # Bloquear acesso a arquivos ocultos
-  location ~ /\\. {
+  location ~ /\. {
     deny all;
     access_log off;
     log_not_found off;
   }
 }
-EOF"
+EOFNGINX
 
+  # Substituindo o placeholder pelo valor real
+  sed -i "s/FRONTEND_HOSTNAME_PLACEHOLDER/${frontend_hostname}/g" /tmp/nginx-frontend-config
+  
+  # Copiando para o local correto
+  sudo cp /tmp/nginx-frontend-config /etc/nginx/sites-available/empresa-frontend
+  
+  # Criando o link simbólico
   sudo ln -sf /etc/nginx/sites-available/empresa-frontend /etc/nginx/sites-enabled/
   
   # Testa a configuração do Nginx
-  sudo nginx -t
+  nginx_test=$(sudo nginx -t 2>&1)
+  nginx_test_result=$?
   
   # Reinicia o Nginx apenas se a configuração estiver correta
-  if [ $? -eq 0 ]; then
+  if [ $nginx_test_result -eq 0 ]; then
     sudo systemctl reload nginx
-    printf "${GREEN} ✅ Nginx configurado e reiniciado com sucesso!${GRAY_LIGHT}"
+    printf "\n${GREEN} ✅ Nginx configurado e reiniciado com sucesso!${GRAY_LIGHT}"
   else
-    printf "${RED} ❌ Erro na configuração do Nginx. Verifique a sintaxe.${GRAY_LIGHT}"
+    printf "\n${RED} ❌ Erro na configuração do Nginx: ${GRAY_LIGHT}"
+    printf "\n${YELLOW} $nginx_test ${GRAY_LIGHT}"
+    
+    # Backup da configuração com problemas
+    sudo cp /etc/nginx/sites-available/empresa-frontend /etc/nginx/sites-available/empresa-frontend.bak
+    
+    # Tenta uma configuração mais básica como último recurso
+    cat > /tmp/nginx-frontend-simple << EOFSIMPLE
+server {
+  server_name ${frontend_hostname};
+  
+  root /home/deploy/empresa/frontend/build;
+  index index.html;
+
+  location / {
+    try_files \$uri \$uri/ /index.html;
+  }
+}
+EOFSIMPLE
+
+    sudo cp /tmp/nginx-frontend-simple /etc/nginx/sites-available/empresa-frontend
+    
+    printf "\n${YELLOW} Tentando uma configuração simplificada... ${GRAY_LIGHT}"
+    if sudo nginx -t; then
+      sudo systemctl reload nginx
+      printf "\n${GREEN} ✅ Configuração simplificada aplicada com sucesso! ${GRAY_LIGHT}"
+    else
+      printf "\n${RED} ❌ Ainda há problemas com a configuração. Por favor, verifique manualmente. ${GRAY_LIGHT}"
+    fi
   fi
+  
+  # Remover arquivo temporário
+  rm -f /tmp/nginx-frontend-config
+  rm -f /tmp/nginx-frontend-simple
   
   sleep 2
 }
