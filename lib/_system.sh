@@ -250,7 +250,7 @@ system_git_clone() {
   sudo chown -R deploy:deploy /home/deploy/empresa
   
   # Tentar clonar o repositório
-  if sudo -u deploy git clone https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/empresa/ ; then
+  if sudo -u deploy git clone -b dev-abril https://lucassaud:${token_code}@github.com/AutoAtende/Sys.git /home/deploy/empresa/ ; then
     printf "\n${GREEN} ✅ Repositório clonado com sucesso!${GRAY_LIGHT}"
   else
     printf "\n${RED} ⚠️ Falha ao clonar o repositório. Verificando conectividade...${GRAY_LIGHT}"
