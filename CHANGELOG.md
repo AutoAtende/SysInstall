@@ -5,6 +5,48 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.3.1] - 2025-05-05
+
+### Adicionado
+- Instalação do Node.js 20.18.0 via NVM para o usuário deploy
+- Verificações de conectividade Redis após instalação
+- Testes automatizados de conexão Redis com autenticação
+- Verificação da instalação do Node.js para o usuário deploy
+- Configuração automática das variáveis de ambiente para NVM no perfil do usuário deploy
+- Verificações detalhadas em cada etapa com recuperação automática
+- Configuração de diretórios NPM global para o usuário deploy sem necessidade de sudo
+
+### Alterado
+- Substituída a instalação do Node.js via NodeSource por NVM
+- Aprimorada a configuração do Redis 7.4 com segurança e performance
+- Melhorado o gerenciamento de permissões entre usuários deploy e www-data
+- Ajustada a configuração de herança de permissões para novos arquivos
+- Otimizado o processo de inicialização do PM2 com NVM
+- Modificado método de instalação e configuração do Redis para versão 7.4
+- Atualizado processo de instalação de dependências usando NVM
+
+### Corrigido
+- Problema de acesso do usuário deploy ao Node.js
+- Falha na conexão Redis com autenticação
+- Questão de permissões inadequadas em diretórios compartilhados
+- Problema de herança de permissões para novos arquivos
+- Erro na inicialização automática do PM2 após reinicialização
+- Falha na instalação de dependências do backend por falta de acesso ao Node.js
+- Problemas com a execução do backend via PM2
+
+### Segurança
+- Melhorada a configuração de autenticação do Redis
+- Fortalecidas as permissões de diretórios compartilhados
+- Implementada configuração otimizada de memória e política de evicção no Redis
+- Ajustadas permissões para minimizar risco de acesso não autorizado
+
+### Técnico
+- Implementação de recuperação automática em caso de falhas na instalação
+- Verificações detalhadas após cada etapa crítica
+- Reestruturado o processo de instalação do Node.js e Redis
+- Melhorado o processo de instalação e configuração do PM2
+- Otimizadas as configurações de ambiente para o Node.js e Redis
+
 ## [2.3.0] - 2025-02-08
 
 ### Adicionado

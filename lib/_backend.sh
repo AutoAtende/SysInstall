@@ -16,6 +16,32 @@ backend_redis_setup() {
     sudo systemctl status redis-server --no-pager
   fi
   
+  # Testar conexão com Redis usando a senha definida
+  printf "\n${WHITE} 🔄 Testando conexão com Redis...${GRAY_LIGHT}\n"
+  
+  # Testar como usuário root
+  if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
+    printf "${GREEN} ✅ Conexão Redis bem sucedida como root!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ Falha na conexão Redis como root.${GRAY_LIGHT}\n"
+  fi
+  
+  # Testar como usuário deploy
+  if sudo -u deploy bash -c "redis-cli -a \"${mysql_root_password}\" ping" | grep -q "PONG"; then
+    printf "${GREEN} ✅ Conexão Redis bem sucedida como usuário deploy!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ Falha na conexão Redis como usuário deploy. Ajustando permissões...${GRAY_LIGHT}\n"
+    sudo usermod -a -G redis deploy 2>/dev/null || true
+    sudo systemctl restart redis-server
+    sleep 2
+    
+    if sudo -u deploy bash -c "redis-cli -a \"${mysql_root_password}\" ping" | grep -q "PONG"; then
+      printf "${GREEN} ✅ Conexão Redis bem sucedida após ajustes!${GRAY_LIGHT}\n"
+    else
+      printf "${RED} ⚠️ Problemas persistem. Verifique a configuração manualmente.${GRAY_LIGHT}\n"
+    fi
+  fi
+  
   sleep 2
 }
 
@@ -108,11 +134,30 @@ backend_node_dependencies() {
   sudo mkdir -p /home/deploy/empresa/backend/public/company1/quickMessages
   sudo mkdir -p /home/deploy/empresa/backend/public/company1/profile
   
-  # Ajustar permissões
+  # Ajustar permissões adequadamente
   sudo chown -R deploy:deploy /home/deploy/empresa/
   
-  # Instalar dependências
-  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install"
+  # Verificar se Node.js está configurado para o usuário deploy
+  printf "\n${WHITE} 🔄 Verificando Node.js para o usuário deploy...${GRAY_LIGHT}\n"
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+  
+  if [[ -z "$node_version" ]]; then
+    printf "${RED} ⚠️ Node.js não encontrado para o usuário deploy. Reinstalando NVM...${GRAY_LIGHT}\n"
+    
+    # Reinstalar NVM para o usuário deploy
+    sudo su - deploy << EOF
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    export NVM_DIR="\$HOME/.nvm"
+    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    nvm install 20.18.0
+    nvm use 20.18.0
+    nvm alias default 20.18.0
+EOF
+  fi
+  
+  # Instalar dependências com o NVM do usuário deploy
+  printf "\n${WHITE} 🔄 Instalando dependências com npm...${GRAY_LIGHT}\n"
+  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install"
   
   # Verificar resultado
   if [ $? -ne 0 ]; then
@@ -120,14 +165,20 @@ backend_node_dependencies() {
     
     # Tentar novamente com --force
     printf "\n${YELLOW} Tentando novamente com --force...${GRAY_LIGHT}"
-    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npm install --force"
+    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install --force"
   fi
 
-  # Ajustar permissões para o nginx
+  # Ajustar permissões para o nginx e usuário deploy
   sudo chown -R deploy:www-data /home/deploy/empresa/backend/public
   sudo chmod -R 775 /home/deploy/empresa/backend/public
+  
+  # Garantir que www-data esteja no grupo deploy
   sudo usermod -a -G deploy www-data
+  
+  # Garantir que novos arquivos herdem as permissões do grupo
+  sudo find /home/deploy/empresa/backend/public -type d -exec chmod g+s {} \;
 
+  printf "\n${GREEN} ✅ Dependências instaladas e permissões configuradas!${GRAY_LIGHT}"
   sleep 2
 }
 
@@ -215,16 +266,14 @@ backend_start_pm2() {
   printf "\n\n"
   sleep 2
   
-  # Verificar se o PM2 está instalado globalmente
-  if ! command -v pm2 &> /dev/null; then
-    printf "\n${RED} ⚠️ PM2 não encontrado. Instalando...${GRAY_LIGHT}"
-    sudo npm install -g pm2@latest
+  # Verificar NVM e Node.js para o usuário deploy
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+  if [[ -z "$node_version" ]]; then
+    printf "\n${RED} ⚠️ Node.js não está configurado para o usuário deploy. Isso precisa ser corrigido antes de continuar.${GRAY_LIGHT}"
+    return 1
   fi
   
-  # Configurar PM2 para o usuário deploy
-  sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
-  
-  # Criar arquivo de configuração PM2
+  # Criar arquivo de configuração PM2 para o usuário deploy
   sudo -u deploy bash -c "cat > /home/deploy/empresa/backend/ecosystem.config.js << 'END'
 module.exports = {
   apps: [{
@@ -246,16 +295,21 @@ module.exports = {
 END"
 
   # Parar aplicação anterior, se existir
-  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && pm2 delete empresa-backend 2>/dev/null || true"
+  sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && cd /home/deploy/empresa/backend && pm2 delete empresa-backend 2>/dev/null || true"
   
-  # Iniciar aplicação e salvar configuração
-  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && pm2 start ecosystem.config.js && pm2 save"
+  # Iniciar aplicação com PM2 usando o NVM do usuário deploy
+  sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && cd /home/deploy/empresa/backend && pm2 start ecosystem.config.js && pm2 save"
   
   # Verificar se o processo foi iniciado corretamente
-  if sudo -u deploy bash -c "pm2 list | grep -q empresa-backend"; then
+  if sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && pm2 list | grep -q empresa-backend"; then
     printf "\n${GREEN} ✅ Backend iniciado com PM2 com sucesso!${GRAY_LIGHT}"
+    
+    # Configurar PM2 para iniciar automaticamente
+    sudo env PATH=$PATH:/usr/bin /home/deploy/.npm-global/bin/pm2 startup systemd -u deploy --hp /home/deploy
+    sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && pm2 save"
   else
-    printf "\n${RED} ⚠️ Erro ao iniciar o backend com PM2. Verifique os logs.${GRAY_LIGHT}"
+    printf "\n${RED} ⚠️ Erro ao iniciar o backend com PM2. Verificando logs...${GRAY_LIGHT}"
+    sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && pm2 logs --lines 20"
   fi
   
   sleep 2

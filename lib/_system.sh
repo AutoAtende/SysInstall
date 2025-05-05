@@ -16,38 +16,71 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando Node.js 20.x e PostgreSQL 16...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando Node.js 20.x via NVM...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   
-  # Instalando Node.js diretamente via NodeSource (método mais confiável)
-  sudo su - root <<EOF
+  # Instalar dependências necessárias
+  sudo apt-get update
+  sudo apt-get install -y curl build-essential libssl-dev
+  
   # Remover versões antigas do Node.js, se existirem
-  apt-get remove -y nodejs npm &>/dev/null || true
+  sudo apt-get remove -y nodejs npm &>/dev/null || true
   
-  # Adicionar repositório NodeSource para Node.js 20.x
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  # Instalar NVM para o usuário deploy
+  sudo su - deploy << EOF
+  # Baixar e instalar NVM
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   
-  # Instalar Node.js
-  apt-get install -y nodejs
+  # Configurar NVM no perfil do usuário
+  export NVM_DIR="\$HOME/.nvm"
+  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+  
+  # Instalar Node.js 20
+  nvm install 20
+  nvm use 20
+  nvm alias default 20
   
   # Verificar a instalação
   node -v
   npm -v
   
-  # Instalar PM2 globalmente para todos os usuários
-  npm install -g pm2@latest
+  # Configurar npm global sem necessidade de sudo
+  mkdir -p \$HOME/.npm-global
+  npm config set prefix '\$HOME/.npm-global'
   
-  # Garantir que o usuário deploy possa executar PM2
-  if id "deploy" &>/dev/null; then
-    chown -R deploy:deploy /home/deploy/.pm2 &>/dev/null || true
-    pm2 startup ubuntu -u deploy || true
-    env PATH=\$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+  # Adicionar ao PATH
+  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.bashrc
+  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
+  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
+  
+  # Instalar PM2 globalmente
+  npm install -g pm2@latest
+EOF
+
+  # Verificar que o Node.js foi instalado corretamente para o usuário deploy
+  printf "\n${WHITE} 🔄 Verificando instalação do Node.js para o usuário deploy...${GRAY_LIGHT}\n"
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+  
+  if [[ "$node_version" == *"20.19.0"* ]]; then
+    printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ Erro: Node.js não foi instalado corretamente para o usuário deploy.${GRAY_LIGHT}\n"
+    printf "${YELLOW} Tentando instalar novamente...${GRAY_LIGHT}\n"
+    
+    sudo su - deploy << EOF
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    export NVM_DIR="\$HOME/.nvm"
+    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    nvm install 20
+    nvm use 20
+    nvm alias default 20
+EOF
   fi
   
-  # Instalando PostgreSQL 16
+  # Instalar PostgreSQL 16
   printf "\n${WHITE} 💻 Instalando PostgreSQL 16...${GRAY_LIGHT}"
-  sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt \$(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+  sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
   wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
   sudo apt-get update -y
   sudo apt-get -y install postgresql-16
@@ -57,60 +90,24 @@ system_node_install() {
   
   # Configurar fuso horário
   sudo timedatectl set-timezone America/Sao_Paulo
-EOF
-
-  # Para usuário deploy, garantir acesso ao Node.js
-  if id "deploy" &>/dev/null; then
-    sudo su - deploy <<EOF
-    # Verificar Node.js
-    node -v
-    npm -v
-EOF
-  fi
-
-  # Verificar que o PM2 está instalado corretamente
-  printf "\n${WHITE} 🔄 Verificando instalação do PM2...${GRAY_LIGHT}\n"
-  if command -v pm2 &>/dev/null; then
-    printf "${GREEN} ✅ PM2 instalado com sucesso!${GRAY_LIGHT}\n"
-  else
-    printf "${RED} ⚠️ Erro: PM2 não foi instalado corretamente.${GRAY_LIGHT}\n"
-    printf "${YELLOW} Tentando instalar novamente...${GRAY_LIGHT}\n"
-    
-    sudo npm install -g pm2@latest
-    
-    if command -v pm2 &>/dev/null; then
-      printf "${GREEN} ✅ PM2 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
-    else
-      printf "${RED} ⚠️ Falha ao instalar PM2. Continuando a instalação...${GRAY_LIGHT}\n"
-    fi
-  fi
-  
-  # Verificar a instalação do PostgreSQL
-  printf "\n${WHITE} 🔄 Verificando instalação do PostgreSQL...${GRAY_LIGHT}\n"
-  if sudo systemctl is-active --quiet postgresql; then
-    printf "${GREEN} ✅ PostgreSQL 16 instalado e rodando!${GRAY_LIGHT}\n"
-  else
-    printf "${RED} ⚠️ PostgreSQL não parece estar funcionando. Tentando iniciar...${GRAY_LIGHT}\n"
-    sudo systemctl start postgresql
-    
-    if sudo systemctl is-active --quiet postgresql; then
-      printf "${GREEN} ✅ PostgreSQL iniciado com sucesso!${GRAY_LIGHT}\n"
-    else
-      printf "${RED} ⚠️ Falha ao iniciar PostgreSQL. Revise a instalação manualmente.${GRAY_LIGHT}\n"
-    fi
-  fi
   
   sleep 2
 }
 
 system_redis_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando e configurando Redis...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando e configurando Redis 7.4...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   
+  # Remover instalações anteriores
+  sudo apt-get remove --purge -y redis-server redis-tools || true
+  sudo apt-get autoremove -y
+  sudo rm -rf /etc/redis /var/lib/redis
+  
+  # Adicionar repositório do Redis 7.x
   sudo su - root <<EOF
-  # Remover chave antiga se existir para evitar o prompt
+  # Remover chave antiga se existir
   rm -f /usr/share/keyrings/redis-archive-keyring.gpg
   
   # Adicionar repositório do Redis com tratamento adequado para evitar prompts
@@ -120,42 +117,79 @@ system_redis_install() {
   # Atualizar e instalar Redis
   apt-get update -y
   apt-get install -y redis-server
+EOF
   
-  # Configurando Redis - fazer backup da configuração original
-  if [ -f "/etc/redis/redis.conf" ]; then
-    cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
-  fi
+  # Verificar versão instalada
+  redis_version=$(redis-server --version | grep -o 'v=[0-9.]*' | cut -d= -f2)
+  printf "\n${WHITE} Redis versão ${redis_version} instalado${GRAY_LIGHT}"
   
-  # Modificar a configuração do Redis diretamente no arquivo
-  # Corrigindo a linha bind para usar apenas 127.0.0.1
-  sed -i 's/^bind 127.0.0.1 -::1/bind 127.0.0.1/' /etc/redis/redis.conf
+  # Fazer backup da configuração original do Redis
+  sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
   
-  # Configurando a senha do Redis - usando a mesma do usuário deploy
-  sed -i "s/# requirepass foobared/requirepass ${mysql_root_password}/" /etc/redis/redis.conf
+  # Configurar Redis
+  sudo bash -c "cat > /etc/redis/redis.conf << EOF
+# Redis 7.x configuração
+bind 127.0.0.1
+port ${redis_port}
+protected-mode yes
+requirepass ${mysql_root_password}
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+appendonly yes
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+# Melhorias de performance
+activedefrag yes
+maxclients 10000
+timeout 300
+tcp-keepalive 300
+EOF"
   
-  # Configurações adicionais
-  sed -i 's/# maxmemory <bytes>/maxmemory 2gb/' /etc/redis/redis.conf
-  sed -i 's/# maxmemory-policy noeviction/maxmemory-policy noeviction/' /etc/redis/redis.conf
-  
-  # Reiniciando serviço
-  systemctl enable redis-server
-  systemctl restart redis-server
+  # Reiniciar Redis e configurar para iniciar com o sistema
+  sudo systemctl restart redis-server
+  sudo systemctl enable redis-server
   
   # Verificar se o Redis está rodando
-  if systemctl is-active --quiet redis-server; then
-    echo "✅ Redis instalado e iniciado com sucesso!"
+  if sudo systemctl is-active --quiet redis-server; then
+    printf "\n${GREEN} ✅ Redis 7.x instalado e configurado com sucesso!${GRAY_LIGHT}"
+    
+    # Teste de conexão com a senha
+    if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
+      printf "\n${GREEN} ✅ Teste de conexão Redis bem sucedido!${GRAY_LIGHT}"
+    else
+      printf "\n${RED} ⚠️ Teste de conexão Redis falhou. Verificando problema...${GRAY_LIGHT}"
+      sudo systemctl restart redis-server
+      sleep 3
+      if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
+        printf "\n${GREEN} ✅ Teste de conexão Redis bem sucedido após reinício!${GRAY_LIGHT}"
+      else
+        printf "\n${RED} ⚠️ Problemas persistem com a conexão Redis. Verifique manualmente.${GRAY_LIGHT}"
+      fi
+    fi
   else
-    echo "⚠️ Erro ao iniciar o Redis. Tentando novamente..."
-    systemctl restart redis-server
+    printf "\n${RED} ⚠️ Erro ao iniciar Redis. Tentando corrigir...${GRAY_LIGHT}"
+    sudo systemctl restart redis-server
     sleep 3
     
-    if systemctl is-active --quiet redis-server; then
-      echo "✅ Redis iniciado com sucesso após segunda tentativa!"
+    if sudo systemctl is-active --quiet redis-server; then
+      printf "\n${GREEN} ✅ Redis iniciado com sucesso após segunda tentativa!${GRAY_LIGHT}"
     else
-      echo "⚠️ Falha ao iniciar o Redis. Instalação pode estar comprometida."
+      printf "\n${RED} ⚠️ Falha ao iniciar o Redis. Restaurando configuração original...${GRAY_LIGHT}"
+      sudo cp /etc/redis/redis.conf.backup /etc/redis/redis.conf
+      sudo systemctl restart redis-server
     fi
   fi
-EOF
+  
+  # Ajustar permissões para garantir que deploy possa usar o Redis
+  sudo usermod -a -G redis deploy 2>/dev/null || true
+  
+  # Configurar firewall para permitir acesso local ao Redis
+  sudo ufw allow from 127.0.0.1 to any port ${redis_port} proto tcp
+  
   sleep 2
 }
 
