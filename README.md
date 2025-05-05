@@ -30,9 +30,9 @@ sudo apt install -y git && git clone https://github.com/AutoAtende/SysInstall.gi
 1. **Instalação Primária**
    - Configura todo o ambiente necessário
    - Instala e configura:
-     - Node.js 20.18.0 (via NVM)
+     - Node.js 20.19.0 (via NVM)
      - PostgreSQL 16
-     - Redis 7
+     - Redis 7.4
      - Nginx
      - Certbot (Let's Encrypt)
    - Configura firewall (UFW)
