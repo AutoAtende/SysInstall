@@ -30,6 +30,18 @@ system_create_user
 system_node_install
 system_redis_install
 system_pm2_install
+
+system_verify_environment || {
+  printf "${RED} ⚠️ Verificação do ambiente falhou. Tentando corrigir...${GRAY_LIGHT}\n"
+  system_node_install
+  system_redis_install
+  system_pm2_install
+  system_verify_environment || {
+    printf "${RED} ⚠️ Falha persistente na configuração do ambiente. Abortando.${GRAY_LIGHT}\n"
+    exit 1
+  }
+}
+
 system_fail2ban_install
 system_fail2ban_conf
 system_firewall_conf

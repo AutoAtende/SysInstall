@@ -16,69 +16,18 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando Node.js 20.x via NVM...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando Node.js 20.19.0 via NVM...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   
   # Instalar dependências necessárias
   sudo apt-get update
-  sudo apt-get install -y curl build-essential libssl-dev
+  sudo apt-get install -y wget build-essential libssl-dev
   
   # Remover versões antigas do Node.js, se existirem
   sudo apt-get remove -y nodejs npm &>/dev/null || true
   
-  # Instalar NVM para o usuário deploy
-  sudo su - deploy << EOF
-  # Baixar e instalar NVM
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  
-  # Configurar NVM no perfil do usuário
-  export NVM_DIR="\$HOME/.nvm"
-  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-  
-  # Instalar Node.js 20
-  nvm install 20
-  nvm use 20
-  nvm alias default 20
-  
-  # Verificar a instalação
-  node -v
-  npm -v
-  
-  # Configurar npm global sem necessidade de sudo
-  mkdir -p \$HOME/.npm-global
-  npm config set prefix '\$HOME/.npm-global'
-  
-  # Adicionar ao PATH
-  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.bashrc
-  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
-  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
-  
-  # Instalar PM2 globalmente
-  npm install -g pm2@latest
-EOF
-
-  # Verificar que o Node.js foi instalado corretamente para o usuário deploy
-  printf "\n${WHITE} 🔄 Verificando instalação do Node.js para o usuário deploy...${GRAY_LIGHT}\n"
-  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
-  
-  if [[ "$node_version" == *"20.19.0"* ]]; then
-    printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
-  else
-    printf "${RED} ⚠️ Erro: Node.js não foi instalado corretamente para o usuário deploy.${GRAY_LIGHT}\n"
-    printf "${YELLOW} Tentando instalar novamente...${GRAY_LIGHT}\n"
-    
-    sudo su - deploy << EOF
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    export NVM_DIR="\$HOME/.nvm"
-    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-    nvm install 20
-    nvm use 20
-    nvm alias default 20
-EOF
-  fi
-  
-  # Instalar PostgreSQL 16
+  # Instalar PostgreSQL 16 (MANTENDO ESTA PARTE CRUCIAL)
   printf "\n${WHITE} 💻 Instalando PostgreSQL 16...${GRAY_LIGHT}"
   sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
   wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -91,8 +40,80 @@ EOF
   # Configurar fuso horário
   sudo timedatectl set-timezone America/Sao_Paulo
   
+  # Instalar NVM para o usuário deploy
+  sudo su - deploy << EOF
+  # Remover instalação anterior do NVM, se existir
+  rm -rf ~/.nvm
+  
+  # Baixar e instalar NVM usando wget
+  wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+  
+  # Configurar NVM no perfil do usuário
+  export NVM_DIR="\$HOME/.nvm"
+  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+  
+  # Instalar Node.js 20.19.0 especificamente
+  nvm install 20.19.0
+  nvm use 20.19.0
+  nvm alias default 20.19.0
+  
+  # Verificar a instalação
+  node -v
+  npm -v
+  
+  # Configurar npm global sem necessidade de sudo
+  mkdir -p \$HOME/.npm-global
+  npm config set prefix '\$HOME/.npm-global'
+  
+  # Adicionar configuração aos arquivos de perfil
+  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.bashrc
+  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
+  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
+  
+  # Também adicionar ao .profile para garantir
+  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.profile
+  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.profile
+  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.profile
+EOF
+
+  # Verificar que o Node.js foi instalado corretamente para o usuário deploy
+  printf "\n${WHITE} 🔄 Verificando instalação do Node.js para o usuário deploy...${GRAY_LIGHT}\n"
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+  
+  if [[ "$node_version" == v20.19.0* ]]; then
+    printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ⚠️ Erro: Node.js não foi instalado corretamente para o usuário deploy.${GRAY_LIGHT}\n"
+    printf "${YELLOW} Tentando instalar novamente com método alternativo...${GRAY_LIGHT}\n"
+    
+    sudo su - deploy << EOF
+    # Método alternativo com NVM
+    export NVM_DIR="\$HOME/.nvm"
+    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    [ -s "\$NVM_DIR/bash_completion" ] && \. "\$NVM_DIR/bash_completion"
+    
+    nvm install 20.19.0
+    nvm use 20.19.0
+    nvm alias default 20.19.0
+    
+    # Verificar novamente
+    node -v
+    npm -v
+EOF
+
+    # Verificar novamente após a segunda tentativa
+    node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+    if [[ "$node_version" == v20.19.0* ]]; then
+      printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
+    else
+      printf "${RED} ⚠️ Falha crítica na instalação do Node.js. Recomendo verificar manualmente.${GRAY_LIGHT}\n"
+      exit 1
+    fi
+  fi
+  
   sleep 2
 }
+
 
 system_redis_install() {
   print_banner
@@ -308,15 +329,109 @@ system_git_clone() {
 
 system_pm2_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando o pm2...${GRAY_LIGHT}\n\n"
-  sudo su - root <<EOF
+  printf "${WHITE} 💻 Instalando o pm2 para o usuário deploy...${GRAY_LIGHT}\n\n"
+  
+  # Instalar PM2 globalmente para o usuário deploy usando NVM
+  sudo su - deploy << EOF
+  # Carregar NVM
+  export NVM_DIR="\$HOME/.nvm"
+  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+  
+  # Verificar se o Node.js está disponível
+  if ! command -v node &> /dev/null; then
+    echo "Node.js não encontrado, não é possível instalar o PM2"
+    exit 1
+  fi
+  
+  # Instalar PM2 globalmente
   npm install -g pm2@latest
-  pm2 startup ubuntu
-  env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy
+  
+  # Verificar a instalação
+  pm2 --version
+  
+  # Configurar PM2 para iniciar automaticamente
+  pm2 startup
 EOF
+
+  # Configurar PM2 startup com o usuário deploy
+  startup_cmd=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 startup | grep -o 'sudo env.*'")
+  
+  if [ ! -z "$startup_cmd" ]; then
+    eval $startup_cmd
+    printf "\n${GREEN} ✅ PM2 startup configurado com sucesso!${GRAY_LIGHT}\n"
+  else
+    printf "\n${YELLOW} ⚠️ Comando PM2 startup não encontrado. Configurando manualmente...${GRAY_LIGHT}\n"
+    sudo env PATH=$PATH:/usr/bin /home/deploy/.npm-global/bin/pm2 startup systemd -u deploy --hp /home/deploy
+  fi
+  
+  # Verificar se o PM2 está funcionando para o usuário deploy
+  if sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 list"; then
+    printf "\n${GREEN} ✅ PM2 instalado e funcionando para o usuário deploy!${GRAY_LIGHT}\n"
+  else
+    printf "\n${RED} ⚠️ PM2 não está funcionando corretamente para o usuário deploy.${GRAY_LIGHT}\n"
+    printf "${YELLOW} Tentando método alternativo...${GRAY_LIGHT}\n"
+    
+    # Método alternativo
+    sudo su - deploy << EOF
+    export NVM_DIR="\$HOME/.nvm"
+    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    npm install -g pm2@latest
+EOF
+  fi
+  
   sleep 2
-  printf "${WHITE} ✔️ pm2 instalado com sucesso!${GRAY_LIGHT}\n"
+}
+
+system_verify_environment() {
+  print_banner
+  printf "${WHITE} 🔍 Verificando ambiente para o usuário deploy...${GRAY_LIGHT}\n\n"
+  
+  # Verificar PostgreSQL (ADICIONADO)
+  if sudo systemctl is-active --quiet postgresql; then
+    printf "${GREEN} ✅ PostgreSQL está ativo e funcionando${GRAY_LIGHT}\n"
+  else
+    printf "${RED} ❌ PostgreSQL não está ativo! Tentando iniciar...${GRAY_LIGHT}\n"
+    sudo systemctl start postgresql
+    sleep 2
+    if ! sudo systemctl is-active --quiet postgresql; then
+      printf "${RED} ❌ Falha ao iniciar PostgreSQL${GRAY_LIGHT}\n"
+      return 1
+    fi
+  fi
+  
+  # Verificar Node.js
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v 2>/dev/null || echo ""')
+  
+  if [[ -z "$node_version" ]]; then
+    printf "${RED} ❌ Node.js não está instalado para o usuário deploy${GRAY_LIGHT}\n"
+    return 1
+  else
+    printf "${GREEN} ✅ Node.js ${node_version} instalado para o usuário deploy${GRAY_LIGHT}\n"
+  fi
+  
+  # Verificar NPM
+  npm_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; npm -v 2>/dev/null || echo ""')
+  
+  if [[ -z "$npm_version" ]]; then
+    printf "${RED} ❌ NPM não está instalado para o usuário deploy${GRAY_LIGHT}\n"
+    return 1
+  else
+    printf "${GREEN} ✅ NPM ${npm_version} instalado para o usuário deploy${GRAY_LIGHT}\n"
+  fi
+  
+  # Verificar PM2
+  pm2_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; pm2 --version 2>/dev/null || echo ""')
+  
+  if [[ -z "$pm2_version" ]]; then
+    printf "${RED} ❌ PM2 não está instalado para o usuário deploy${GRAY_LIGHT}\n"
+    return 1
+  else
+    printf "${GREEN} ✅ PM2 ${pm2_version} instalado para o usuário deploy${GRAY_LIGHT}\n"
+  fi
+  
+  printf "\n${GREEN} ✅ Ambiente verificado com sucesso! Pronto para prosseguir.${GRAY_LIGHT}\n"
   sleep 2
+  return 0
 }
 
 system_fail2ban_install() {

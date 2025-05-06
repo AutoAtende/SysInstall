@@ -137,35 +137,80 @@ backend_node_dependencies() {
   # Ajustar permissões adequadamente
   sudo chown -R deploy:deploy /home/deploy/empresa/
   
-  # Verificar se Node.js está configurado para o usuário deploy
+  # Verificar se Node.js está configurado para o usuário deploy com comando mais robusto
   printf "\n${WHITE} 🔄 Verificando Node.js para o usuário deploy...${GRAY_LIGHT}\n"
-  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v 2>/dev/null || echo ""')
   
   if [[ -z "$node_version" ]]; then
-    printf "${RED} ⚠️ Node.js não encontrado para o usuário deploy. Reinstalando NVM...${GRAY_LIGHT}\n"
+    printf "${RED} ⚠️ Node.js não encontrado para o usuário deploy. Configurando NVM e Node.js...${GRAY_LIGHT}\n"
     
-    # Reinstalar NVM para o usuário deploy
+    # Configuração completa do NVM e Node.js para o usuário deploy
     sudo su - deploy << EOF
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    # Remover instalação anterior do NVM, se existir
+    rm -rf ~/.nvm
+    
+    # Instalar NVM
+    wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    
+    # Configurar NVM
     export NVM_DIR="\$HOME/.nvm"
     [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-    nvm install 20.18.0
-    nvm use 20.18.0
-    nvm alias default 20.18.0
+    
+    # Instalar Node.js 20.19.0
+    nvm install 20.19.0
+    nvm use 20.19.0
+    nvm alias default 20.19.0
+    
+    # Configurar variáveis de ambiente persistentes
+    echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
+    echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
+    echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.bashrc
+    
+    # Criar diretório global do NPM
+    mkdir -p \$HOME/.npm-global
+    npm config set prefix '\$HOME/.npm-global'
+    
+    # Verificar instalação
+    node -v
+    npm -v
 EOF
+  
+    # Verificar se a instalação foi bem-sucedida
+    node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v 2>/dev/null || echo ""')
+    
+    if [[ -z "$node_version" ]]; then
+      printf "${RED} ⚠️ Falha crítica na instalação do Node.js. A instalação não pode continuar.${GRAY_LIGHT}\n"
+      exit 1
+    else
+      printf "${GREEN} ✅ Node.js ${node_version} instalado com sucesso!${GRAY_LIGHT}\n"
+    fi
+  else
+    printf "${GREEN} ✅ Node.js ${node_version} já está instalado para o usuário deploy!${GRAY_LIGHT}\n"
   fi
   
   # Instalar dependências com o NVM do usuário deploy
   printf "\n${WHITE} 🔄 Instalando dependências com npm...${GRAY_LIGHT}\n"
-  sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install"
   
-  # Verificar resultado
-  if [ $? -ne 0 ]; then
-    printf "\n${RED} ⚠️ Erro ao instalar dependências do backend${GRAY_LIGHT}"
+  # Comando mais robusto para instalar dependências
+  install_result=$(sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install" 2>&1)
+  install_status=$?
+  
+  if [ $install_status -ne 0 ]; then
+    printf "\n${RED} ⚠️ Erro ao instalar dependências do backend: ${install_result}${GRAY_LIGHT}\n"
     
     # Tentar novamente com --force
-    printf "\n${YELLOW} Tentando novamente com --force...${GRAY_LIGHT}"
-    sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install --force"
+    printf "\n${YELLOW} Tentando novamente com --force...${GRAY_LIGHT}\n"
+    install_result=$(sudo -u deploy bash -c "cd /home/deploy/empresa/backend && export NVM_DIR=\"\$HOME/.nvm\" && [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" && npm install --force" 2>&1)
+    install_status=$?
+    
+    if [ $install_status -ne 0 ]; then
+      printf "\n${RED} ⚠️ Falha persistente na instalação das dependências: ${install_result}${GRAY_LIGHT}\n"
+      # Não sair, tentar continuar com o processo
+    else
+      printf "\n${GREEN} ✅ Dependências instaladas com --force!${GRAY_LIGHT}\n"
+    fi
+  else
+    printf "\n${GREEN} ✅ Dependências instaladas com sucesso!${GRAY_LIGHT}\n"
   fi
 
   # Ajustar permissões para o nginx e usuário deploy
