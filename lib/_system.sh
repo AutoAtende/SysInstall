@@ -45,6 +45,9 @@ system_node_install() {
   # Remover instalação anterior do NVM, se existir
   rm -rf ~/.nvm
   
+  # Remover arquivo .npmrc se existir para evitar conflitos
+  rm -f ~/.npmrc
+  
   # Baixar e instalar NVM usando wget
   wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   
@@ -53,25 +56,19 @@ system_node_install() {
   [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
   
   # Instalar Node.js 20.19.0 especificamente
-  nvm install 20.19.0
-  nvm use 20.19.0
-  nvm alias default 20.19.0
+  nvm install 20
+  nvm use 20 --delete-prefix
+  nvm alias default 20
   
   # Verificar a instalação
   node -v
   npm -v
   
-  # Configurar npm global sem necessidade de sudo
-  mkdir -p \$HOME/.npm-global
-  npm config set prefix '\$HOME/.npm-global'
-  
-  # Adicionar configuração aos arquivos de perfil
-  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.bashrc
+  # Adicionar configuração aos arquivos de perfil (somente NVM)
   echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
   echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
   
   # Também adicionar ao .profile para garantir
-  echo 'export PATH="\$HOME/.npm-global/bin:\$PATH"' >> \$HOME/.profile
   echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.profile
   echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.profile
 EOF
@@ -92,9 +89,9 @@ EOF
     [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
     [ -s "\$NVM_DIR/bash_completion" ] && \. "\$NVM_DIR/bash_completion"
     
-    nvm install 20.19.0
-    nvm use 20.19.0
-    nvm alias default 20.19.0
+    nvm install 20
+    nvm use 20 --delete-prefix
+    nvm alias default 20
     
     # Verificar novamente
     node -v
@@ -113,7 +110,6 @@ EOF
   
   sleep 2
 }
-
 
 system_redis_install() {
   print_banner
@@ -331,52 +327,85 @@ system_pm2_install() {
   print_banner
   printf "${WHITE} 💻 Instalando o pm2 para o usuário deploy...${GRAY_LIGHT}\n\n"
   
+  # Remover .npmrc se existir para evitar conflitos com NVM
+  sudo -u deploy bash -c "rm -f ~/.npmrc"
+  
   # Instalar PM2 globalmente para o usuário deploy usando NVM
   sudo su - deploy << EOF
+  # Remover qualquer configuração que possa causar conflito
+  rm -f ~/.npmrc
+  
   # Carregar NVM
   export NVM_DIR="\$HOME/.nvm"
   [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
   
+  # Usar node com a opção delete-prefix para resolver conflitos
+  nvm use 20 --delete-prefix
+  
   # Verificar se o Node.js está disponível
-  if ! command -v node &> /dev/null; then
-    echo "Node.js não encontrado, não é possível instalar o PM2"
-    exit 1
+  if command -v node &> /dev/null; then
+    echo "Node.js encontrado: \$(node -v)"
+  else
+    echo "Node.js não encontrado, tentando carregar novamente NVM"
+    source ~/.nvm/nvm.sh
+    nvm use 20 --delete-prefix
   fi
   
   # Instalar PM2 globalmente
+  echo "Instalando PM2..."
   npm install -g pm2@latest
   
   # Verificar a instalação
+  echo "Versão do PM2 instalada:"
   pm2 --version
-  
-  # Configurar PM2 para iniciar automaticamente
-  pm2 startup
 EOF
 
-  # Configurar PM2 startup com o usuário deploy
-  startup_cmd=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 startup | grep -o 'sudo env.*'")
+  # Verificar se o PM2 foi instalado
+  pm2_version=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 --version 2>/dev/null || echo \"\"")
   
-  if [ ! -z "$startup_cmd" ]; then
-    eval $startup_cmd
-    printf "\n${GREEN} ✅ PM2 startup configurado com sucesso!${GRAY_LIGHT}\n"
-  else
-    printf "\n${YELLOW} ⚠️ Comando PM2 startup não encontrado. Configurando manualmente...${GRAY_LIGHT}\n"
-    sudo env PATH=$PATH:/usr/bin /home/deploy/.npm-global/bin/pm2 startup systemd -u deploy --hp /home/deploy
-  fi
-  
-  # Verificar se o PM2 está funcionando para o usuário deploy
-  if sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 list"; then
-    printf "\n${GREEN} ✅ PM2 instalado e funcionando para o usuário deploy!${GRAY_LIGHT}\n"
-  else
-    printf "\n${RED} ⚠️ PM2 não está funcionando corretamente para o usuário deploy.${GRAY_LIGHT}\n"
-    printf "${YELLOW} Tentando método alternativo...${GRAY_LIGHT}\n"
+  if [ -z "$pm2_version" ]; then
+    printf "\n${RED} ⚠️ PM2 não foi instalado. Tentando método alternativo...${GRAY_LIGHT}\n"
     
-    # Método alternativo
+    # Método alternativo usando PATH absoluto
     sudo su - deploy << EOF
+    # Limpar qualquer configuração conflitante
+    rm -f ~/.npmrc
+    
+    # Carregar NVM e instalar PM2
     export NVM_DIR="\$HOME/.nvm"
     [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-    npm install -g pm2@latest
+    
+    # Garantir uso do Node.js correto
+    nvm use 20 --delete-prefix
+    
+    # Caminho direto para npm dentro do NVM
+    \$HOME/.nvm/versions/node/v20.19.0/bin/npm install -g pm2@latest
 EOF
+  
+    # Verificar novamente
+    pm2_version=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 --version 2>/dev/null || echo \"\"")
+    
+    if [ -z "$pm2_version" ]; then
+      printf "\n${RED} ⚠️ Falha persistente na instalação do PM2. Última tentativa...${GRAY_LIGHT}\n"
+      
+      # Último recurso - instalar PM2 globalmente como root e garantir acesso
+      sudo npm install -g pm2@latest
+      sudo chmod -R 755 /usr/local/lib/node_modules/pm2
+      sudo ln -sf /usr/local/lib/node_modules/pm2/bin/pm2 /usr/local/bin/pm2
+      
+      # Verificar novamente
+      pm2_version=$(sudo -u deploy bash -c "pm2 --version 2>/dev/null || echo \"\"")
+    fi
+  fi
+  
+  if [ -z "$pm2_version" ]; then
+    printf "\n${RED} ❌ Todas as tentativas de instalar PM2 falharam.${GRAY_LIGHT}\n"
+    return 1
+  else
+    printf "\n${GREEN} ✅ PM2 instalado com sucesso!${GRAY_LIGHT}\n"
+    
+    # Configurar PM2 startup
+    sudo env PATH=$PATH:/usr/bin /home/deploy/.nvm/versions/node/v20.19.0/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
   fi
   
   sleep 2
@@ -386,7 +415,7 @@ system_verify_environment() {
   print_banner
   printf "${WHITE} 🔍 Verificando ambiente para o usuário deploy...${GRAY_LIGHT}\n\n"
   
-  # Verificar PostgreSQL (ADICIONADO)
+  # Verificar PostgreSQL
   if sudo systemctl is-active --quiet postgresql; then
     printf "${GREEN} ✅ PostgreSQL está ativo e funcionando${GRAY_LIGHT}\n"
   else
@@ -399,8 +428,15 @@ system_verify_environment() {
     fi
   fi
   
+  # Verificar e corrigir conflitos de .npmrc para o usuário deploy
+  printf "${WHITE} 🔍 Verificando configuração do npm...${GRAY_LIGHT}\n"
+  if sudo -u deploy test -f /home/deploy/.npmrc; then
+    printf "${YELLOW} ⚠️ Arquivo .npmrc encontrado. Removendo para evitar conflitos com NVM.${GRAY_LIGHT}\n"
+    sudo -u deploy bash -c "rm -f ~/.npmrc"
+  fi
+  
   # Verificar Node.js
-  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v 2>/dev/null || echo ""')
+  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm use 20 --delete-prefix --silent 2>/dev/null; node -v 2>/dev/null || echo ""')
   
   if [[ -z "$node_version" ]]; then
     printf "${RED} ❌ Node.js não está instalado para o usuário deploy${GRAY_LIGHT}\n"
@@ -410,7 +446,7 @@ system_verify_environment() {
   fi
   
   # Verificar NPM
-  npm_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; npm -v 2>/dev/null || echo ""')
+  npm_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm use 20 --delete-prefix --silent 2>/dev/null; npm -v 2>/dev/null || echo ""')
   
   if [[ -z "$npm_version" ]]; then
     printf "${RED} ❌ NPM não está instalado para o usuário deploy${GRAY_LIGHT}\n"
@@ -420,7 +456,7 @@ system_verify_environment() {
   fi
   
   # Verificar PM2
-  pm2_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; pm2 --version 2>/dev/null || echo ""')
+  pm2_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm use 20 --delete-prefix --silent 2>/dev/null; pm2 --version 2>/dev/null || echo ""')
   
   if [[ -z "$pm2_version" ]]; then
     printf "${RED} ❌ PM2 não está instalado para o usuário deploy${GRAY_LIGHT}\n"
