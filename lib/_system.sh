@@ -16,7 +16,7 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando Node.js 20.19.0 via NVM...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando Node.js 20.19.1 via NVM...${GRAY_LIGHT}"
   printf "\n\n"
   sleep 2
   
@@ -77,8 +77,8 @@ EOF
   printf "\n${WHITE} 🔄 Verificando instalação do Node.js para o usuário deploy...${GRAY_LIGHT}\n"
   node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
   
-  if [[ "$node_version" == v20.19.0* ]]; then
-    printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
+  if [[ "$node_version" == v20.19.1* ]]; then
+    printf "${GREEN} ✅ Node.js 20.19.1 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
   else
     printf "${RED} ⚠️ Erro: Node.js não foi instalado corretamente para o usuário deploy.${GRAY_LIGHT}\n"
     printf "${YELLOW} Tentando instalar novamente com método alternativo...${GRAY_LIGHT}\n"
@@ -100,8 +100,8 @@ EOF
 
     # Verificar novamente após a segunda tentativa
     node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
-    if [[ "$node_version" == v20.19.0* ]]; then
-      printf "${GREEN} ✅ Node.js 20.19.0 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
+    if [[ "$node_version" == v20.19.1* ]]; then
+      printf "${GREEN} ✅ Node.js 20.19.1 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
     else
       printf "${RED} ⚠️ Falha crítica na instalação do Node.js. Recomendo verificar manualmente.${GRAY_LIGHT}\n"
       exit 1
@@ -379,7 +379,7 @@ EOF
     nvm use 20 --delete-prefix
     
     # Caminho direto para npm dentro do NVM
-    \$HOME/.nvm/versions/node/v20.19.0/bin/npm install -g pm2@latest
+    \$HOME/.nvm/versions/node/v20.19.1/bin/npm install -g pm2@latest
 EOF
   
     # Verificar novamente
@@ -405,7 +405,7 @@ EOF
     printf "\n${GREEN} ✅ PM2 instalado com sucesso!${GRAY_LIGHT}\n"
     
     # Configurar PM2 startup
-    sudo env PATH=$PATH:/usr/bin /home/deploy/.nvm/versions/node/v20.19.0/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+    sudo env PATH=$PATH:/usr/bin /home/deploy/.nvm/versions/node/v20.19.1/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
   fi
   
   sleep 2
