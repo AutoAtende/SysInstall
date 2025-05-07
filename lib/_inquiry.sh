@@ -230,17 +230,9 @@ inquiry_options() {
 
     case "${option}" in
         1) 
-            if [ -d "/home/deploy" ] && [ ! -z "$(ls -A /home/deploy/)" ]; then
-                printf "\n${RED} ⚠️ Foi detectada uma instalação existente do AutoAtende!${GRAY_LIGHT}"
-                printf "\n${WHITE} Use a opção 2 para remover a instalação atual ou a opção 3 para limpar completamente o sistema.${GRAY_LIGHT}"
-                printf "\n\n"
-                read -p "Pressione ENTER para voltar ao menu principal..."
-                inquiry_options
-            else
-                get_urls
-                show_vars
-                detect_installed_components
-            fi
+            get_urls
+            show_vars
+            detect_installed_components
             ;;
         2)
             software_delete
