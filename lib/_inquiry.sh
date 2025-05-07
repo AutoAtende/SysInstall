@@ -100,17 +100,9 @@ get_mysql_root_password() {
   print_banner
   printf "${WHITE} 💻 Insira senha para o usuario Deploy e Banco de Dados:${GRAY_LIGHT}"
   printf "\n\n"
-  printf "${YELLOW} A senha precisa ter no mínimo 8 caracteres${GRAY_LIGHT}"
-  printf "\n\n"
   read -s -p "> " mysql_root_password
   printf "\n"
   
-  if [ ${#mysql_root_password} -lt 8 ]; then
-    printf "\n${RED} ⚠️ A senha precisa ter no mínimo 8 caracteres!${GRAY_LIGHT}"
-    printf "\n\n"
-    get_mysql_root_password
-  fi
-
   printf "\n${WHITE} 💻 Digite a senha novamente:${GRAY_LIGHT}"
   printf "\n\n"
   read -s -p "> " mysql_root_password_confirm
