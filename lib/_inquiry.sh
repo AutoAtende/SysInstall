@@ -230,9 +230,9 @@ inquiry_options() {
 
     case "${option}" in
         1) 
+            detect_installed_components
             get_urls
             show_vars
-            detect_installed_components
             ;;
         2)
             software_delete
