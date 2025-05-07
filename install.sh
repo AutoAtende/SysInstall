@@ -9,7 +9,13 @@ while [ -h "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$PROJECT_ROOT/$SOURCE"
 done
 PROJECT_ROOT="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
-
+use_existing_components=false
+nginx_installed=false
+postgresql_installed=false
+redis_installed=false
+nodejs_installed=false
+deploy_exists=false
+pm2_installed=false
 # Required imports
 source "${PROJECT_ROOT}"/variables/manifest.sh
 source "${PROJECT_ROOT}"/utils/manifest.sh

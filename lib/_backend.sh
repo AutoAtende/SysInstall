@@ -268,14 +268,34 @@ backend_db_migrate() {
     sleep 3
   fi
   
-  # Criar banco e usuário
-  sudo su - postgres <<EOF
+  # Verificar se o banco e usuário já existem
+  db_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='empresa'" 2>/dev/null || echo "0")
+  user_exists=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='empresa'" 2>/dev/null || echo "0")
+  
+  if [ "$db_exists" = "1" ] && [ "$user_exists" = "1" ] && [ "$use_existing_components" = "true" ]; then
+    printf "\n${GREEN} ✅ Banco de dados 'empresa' e usuário 'empresa' já existem${GRAY_LIGHT}"
+    
+    # Perguntar se devemos executar as migrations mesmo assim
+    printf "\n${YELLOW} ⚠️ Deseja executar as migrations no banco existente? (y/N)${GRAY_LIGHT} "
+    read -n 1 -r
+    printf "\n"
+    
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      printf "\n${GREEN} ✅ Pulando execução de migrations${GRAY_LIGHT}"
+      return 0
+    fi
+  else
+    # Criar banco e usuário
+    printf "\n${WHITE} 🔄 Criando banco de dados e usuário...${GRAY_LIGHT}"
+    sudo su - postgres <<EOF
 createdb empresa 2>/dev/null || echo "Banco 'empresa' já existe ou erro ao criar"
 psql -c "CREATE USER empresa WITH ENCRYPTED PASSWORD '${mysql_root_password}' SUPERUSER INHERIT CREATEDB CREATEROLE;" 2>/dev/null || echo "Usuário 'empresa' já existe ou erro ao criar"
 psql -c "ALTER DATABASE empresa OWNER TO empresa;" 2>/dev/null
 EOF
+  fi
 
   # Executar migrations
+  printf "\n${WHITE} 🔄 Executando migrations...${GRAY_LIGHT}"
   sudo -u deploy bash -c "cd /home/deploy/empresa/backend && npx sequelize db:migrate"
   
   if [ $? -ne 0 ]; then

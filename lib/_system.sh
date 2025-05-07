@@ -16,135 +16,227 @@ EOF
 
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando Node.js 20.19.1 via NVM...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Verificando Node.js...${GRAY_LIGHT}"
   printf "\n\n"
-  sleep 2
   
-  # Instalar dependências necessárias
-  sudo apt-get update
-  sudo apt-get install -y wget build-essential libssl-dev
+  # Verificar se o Node.js já está configurado para o usuário deploy
+  node_version=""
   
-  # Remover versões antigas do Node.js, se existirem
-  sudo apt-get remove -y nodejs npm &>/dev/null || true
-  
-  # Instalar PostgreSQL 16 (MANTENDO ESTA PARTE CRUCIAL)
-  printf "\n${WHITE} 💻 Instalando PostgreSQL 16...${GRAY_LIGHT}"
-  sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-  wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-  sudo apt-get update -y
-  sudo apt-get -y install postgresql-16
-  
-  sudo systemctl enable postgresql
-  sudo systemctl start postgresql
-  
-  # Configurar fuso horário
-  sudo timedatectl set-timezone America/Sao_Paulo
-  
-  # Instalar NVM para o usuário deploy
-  sudo su - deploy << EOF
-  # Remover instalação anterior do NVM, se existir
-  rm -rf ~/.nvm
-  
-  # Remover arquivo .npmrc se existir para evitar conflitos
-  rm -f ~/.npmrc
-  
-  # Baixar e instalar NVM usando wget
-  wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  
-  # Configurar NVM no perfil do usuário
-  export NVM_DIR="\$HOME/.nvm"
-  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-  
-  # Instalar Node.js 20.19.0 especificamente
-  nvm install 20
-  nvm use 20 --delete-prefix
-  nvm alias default 20
-  
-  # Verificar a instalação
-  node -v
-  npm -v
-  
-  # Adicionar configuração aos arquivos de perfil (somente NVM)
-  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
-  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
-  
-  # Também adicionar ao .profile para garantir
-  echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.profile
-  echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.profile
-EOF
-
-  # Verificar que o Node.js foi instalado corretamente para o usuário deploy
-  printf "\n${WHITE} 🔄 Verificando instalação do Node.js para o usuário deploy...${GRAY_LIGHT}\n"
-  node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
-  
-  if [[ "$node_version" == v20.19.1* ]]; then
-    printf "${GREEN} ✅ Node.js 20.19.1 instalado com sucesso para o usuário deploy!${GRAY_LIGHT}\n"
-  else
-    printf "${RED} ⚠️ Erro: Node.js não foi instalado corretamente para o usuário deploy.${GRAY_LIGHT}\n"
-    printf "${YELLOW} Tentando instalar novamente com método alternativo...${GRAY_LIGHT}\n"
+  if id "deploy" &>/dev/null; then
+    # Verificar se existe via NVM
+    node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v 2>/dev/null || echo ""')
     
+    # Se não encontrou via NVM, verificar instalação direta
+    if [ -z "$node_version" ]; then
+      node_version=$(sudo -u deploy bash -c 'command -v node &> /dev/null && node -v' 2>/dev/null || echo "")
+    fi
+  fi
+  
+  if [ ! -z "$node_version" ] && [ "$use_existing_components" = "true" ]; then
+    printf "${GREEN} ✅ Node.js ${node_version} já está instalado para o usuário deploy${GRAY_LIGHT}\n"
+    
+    # Verificar compatibilidade (se estamos próximos da versão desejada)
+    if [[ "$node_version" =~ ^v20 ]]; then
+      printf "${GREEN} ✅ Versão compatível do Node.js detectada${GRAY_LIGHT}\n"
+    else
+      printf "${YELLOW} ⚠️ A versão do Node.js (${node_version}) pode não ser totalmente compatível.${GRAY_LIGHT}\n"
+      printf "${YELLOW} Recomendado: Node.js v20.x. Continuar mesmo assim? (y/N)${GRAY_LIGHT} "
+      read -n 1 -r
+      printf "\n"
+      
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        printf "${YELLOW} Instalando Node.js 20 via NVM...${GRAY_LIGHT}\n"
+        
+        # Configurar NVM para o usuário deploy e instalar Node.js 20
+        sudo -u deploy bash -c '
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          
+          # Verificar se NVM está instalado, caso contrário instalar
+          if ! command -v nvm &> /dev/null; then
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          fi
+          
+          # Instalar Node.js 20
+          nvm install 20
+          nvm use 20
+          nvm alias default 20
+        '
+      fi
+    fi
+  else
+    printf "${YELLOW} ⚠️ Node.js não detectado ou reinstalação solicitada. Instalando...${GRAY_LIGHT}\n"
+    
+    # Instalar PostgreSQL 16 (MANTENDO ESTA PARTE CRUCIAL)
+    if ! command -v psql &> /dev/null || [ "$postgresql_installed" != "true" ]; then
+      printf "\n${WHITE} 💻 Instalando PostgreSQL 16...${GRAY_LIGHT}"
+      sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+      wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+      sudo apt-get update -y
+      sudo apt-get -y install postgresql-16
+      
+      sudo systemctl enable postgresql
+      sudo systemctl start postgresql
+    else
+      printf "\n${GREEN} ✅ PostgreSQL já está instalado${GRAY_LIGHT}\n"
+    fi
+    
+    # Configurar fuso horário
+    sudo timedatectl set-timezone America/Sao_Paulo
+    
+    # Instalar NVM para o usuário deploy
     sudo su - deploy << EOF
-    # Método alternativo com NVM
+    # Remover instalação anterior do NVM, se existir
+    rm -rf ~/.nvm
+    
+    # Remover arquivo .npmrc se existir para evitar conflitos
+    rm -f ~/.npmrc
+    
+    # Baixar e instalar NVM usando wget
+    wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    
+    # Configurar NVM no perfil do usuário
     export NVM_DIR="\$HOME/.nvm"
     [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-    [ -s "\$NVM_DIR/bash_completion" ] && \. "\$NVM_DIR/bash_completion"
     
+    # Instalar Node.js 20 especificamente
     nvm install 20
     nvm use 20 --delete-prefix
     nvm alias default 20
     
-    # Verificar novamente
+    # Verificar a instalação
     node -v
     npm -v
+    
+    # Adicionar configuração aos arquivos de perfil
+    echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.bashrc
+    echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.bashrc
+    echo 'export NVM_DIR="\$HOME/.nvm"' >> \$HOME/.profile
+    echo '[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"' >> \$HOME/.profile
 EOF
-
-    # Verificar novamente após a segunda tentativa
-    node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v')
-    if [[ "$node_version" == v20.19.1* ]]; then
-      printf "${GREEN} ✅ Node.js 20.19.1 instalado com sucesso na segunda tentativa!${GRAY_LIGHT}\n"
-    else
-      printf "${RED} ⚠️ Falha crítica na instalação do Node.js. Recomendo verificar manualmente.${GRAY_LIGHT}\n"
-      exit 1
-    fi
   fi
   
+  printf "\n${GREEN} ✅ Verificação e configuração do Node.js concluída!${GRAY_LIGHT}\n"
   sleep 2
 }
 
 system_redis_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando e configurando Redis 7.4...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Verificando Redis...${GRAY_LIGHT}"
   printf "\n\n"
-  sleep 2
   
-  # Remover instalações anteriores
-  sudo apt-get remove --purge -y redis-server redis-tools || true
-  sudo apt-get autoremove -y
-  sudo rm -rf /etc/redis /var/lib/redis
+  # Verificar se o Redis já está instalado e funcionando
+  redis_running=false
+  if command -v redis-cli &> /dev/null && sudo systemctl is-active --quiet redis-server; then
+    redis_running=true
+    redis_version=$(redis-server --version | grep -o 'v=[0-9.]*' | cut -d= -f2)
+    printf "${GREEN} ✅ Redis versão ${redis_version} já está instalado e rodando${GRAY_LIGHT}\n"
+  fi
   
-  # Adicionar repositório do Redis 7.x
-  sudo su - root <<EOF
-  # Remover chave antiga se existir
-  rm -f /usr/share/keyrings/redis-archive-keyring.gpg
-  
-  # Adicionar repositório do Redis com tratamento adequado para evitar prompts
-  curl -fsSL https://packages.redis.io/gpg | gpg --yes --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-  echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list > /dev/null
-  
-  # Atualizar e instalar Redis
-  apt-get update -y
-  apt-get install -y redis-server
+  if [ "$redis_running" = "true" ] && [ "$use_existing_components" = "true" ]; then
+    printf "${GREEN} ✅ Usando instalação existente do Redis${GRAY_LIGHT}\n"
+    
+    # Verificar se precisamos atualizar a configuração
+    printf "${YELLOW} ⚠️ Deseja atualizar a configuração do Redis para o AutoAtende? (y/N)${GRAY_LIGHT} "
+    read -n 1 -r
+    printf "\n"
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      # Fazer backup da configuração atual
+      sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.bak.$(date +%Y%m%d%H%M%S)
+      
+      # Atualizar configuração
+      sudo bash -c "cat > /etc/redis/redis.conf << EOF
+# Redis configuração para AutoAtende
+bind 127.0.0.1
+port ${redis_port}
+protected-mode yes
+requirepass ${mysql_root_password}
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+appendonly yes
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+# Melhorias de performance
+activedefrag yes
+maxclients 10000
+timeout 300
+tcp-keepalive 300
+EOF"
+      
+      # Reiniciar Redis
+      sudo systemctl restart redis-server
+      printf "${GREEN} ✅ Configuração do Redis atualizada${GRAY_LIGHT}\n"
+      
+      # Testar conexão
+      if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
+        printf "${GREEN} ✅ Teste de conexão Redis bem sucedido!${GRAY_LIGHT}\n"
+      else
+        printf "${RED} ⚠️ Teste de conexão Redis falhou. Restaurando configuração...${GRAY_LIGHT}\n"
+        sudo cp /etc/redis/redis.conf.bak.$(ls -t /etc/redis/redis.conf.bak.* | head -n1 | cut -d. -f3) /etc/redis/redis.conf
+        sudo systemctl restart redis-server
+      fi
+    else
+      printf "${YELLOW} ⚠️ Mantendo configuração atual do Redis${GRAY_LIGHT}\n"
+      
+      # Verificar se podemos testar a senha atual
+      printf "${YELLOW} ⚠️ Por favor, informe a senha atual do Redis (deixe em branco para tentar sem senha):${GRAY_LIGHT} "
+      read -s current_redis_password
+      printf "\n"
+      
+      if [ -z "$current_redis_password" ]; then
+        if redis-cli ping | grep -q "PONG"; then
+          printf "${GREEN} ✅ Redis está acessível sem senha${GRAY_LIGHT}\n"
+        else
+          printf "${RED} ⚠️ Não foi possível conectar ao Redis sem senha${GRAY_LIGHT}\n"
+          printf "${YELLOW} ⚠️ Você precisará configurar a senha manualmente no arquivo .env mais tarde${GRAY_LIGHT}\n"
+        fi
+      else
+        if redis-cli -a "$current_redis_password" ping | grep -q "PONG"; then
+          printf "${GREEN} ✅ Redis está acessível com a senha fornecida${GRAY_LIGHT}\n"
+          mysql_root_password="$current_redis_password"
+          printf "${GREEN} ✅ Usando a senha do Redis existente para configuração${GRAY_LIGHT}\n"
+        else
+          printf "${RED} ⚠️ Não foi possível conectar ao Redis com a senha fornecida${GRAY_LIGHT}\n"
+          printf "${YELLOW} ⚠️ Você precisará configurar a senha manualmente no arquivo .env mais tarde${GRAY_LIGHT}\n"
+        fi
+      fi
+    fi
+  else
+    printf "${YELLOW} ⚠️ Redis não detectado ou reinstalação solicitada. Instalando...${GRAY_LIGHT}\n"
+    
+    # Código original para instalar o Redis
+    # Remover instalações anteriores
+    sudo apt-get remove --purge -y redis-server redis-tools || true
+    sudo apt-get autoremove -y
+    sudo rm -rf /etc/redis /var/lib/redis
+    
+    # Adicionar repositório do Redis 7.x
+    sudo su - root <<EOF
+    # Remover chave antiga se existir
+    rm -f /usr/share/keyrings/redis-archive-keyring.gpg
+    
+    # Adicionar repositório do Redis com tratamento adequado para evitar prompts
+    curl -fsSL https://packages.redis.io/gpg | gpg --yes --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list > /dev/null
+    
+    # Atualizar e instalar Redis
+    apt-get update -y
+    apt-get install -y redis-server
 EOF
-  
-  # Verificar versão instalada
-  redis_version=$(redis-server --version | grep -o 'v=[0-9.]*' | cut -d= -f2)
-  printf "\n${WHITE} Redis versão ${redis_version} instalado${GRAY_LIGHT}"
-  
-  # Fazer backup da configuração original do Redis
-  sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
-  
-  # Configurar Redis
-  sudo bash -c "cat > /etc/redis/redis.conf << EOF
+    
+    # Continuar com a configuração original...
+    # Fazer backup da configuração original do Redis
+    sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
+    
+    # Configurar Redis
+    sudo bash -c "cat > /etc/redis/redis.conf << EOF
 # Redis 7.x configuração
 bind 127.0.0.1
 port ${redis_port}
@@ -165,108 +257,74 @@ maxclients 10000
 timeout 300
 tcp-keepalive 300
 EOF"
-  
-  # Reiniciar Redis e configurar para iniciar com o sistema
-  sudo systemctl restart redis-server
-  sudo systemctl enable redis-server
-  
-  # Verificar se o Redis está rodando
-  if sudo systemctl is-active --quiet redis-server; then
-    printf "\n${GREEN} ✅ Redis 7.x instalado e configurado com sucesso!${GRAY_LIGHT}"
     
-    # Teste de conexão com a senha
-    if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
-      printf "\n${GREEN} ✅ Teste de conexão Redis bem sucedido!${GRAY_LIGHT}"
-    else
-      printf "\n${RED} ⚠️ Teste de conexão Redis falhou. Verificando problema...${GRAY_LIGHT}"
-      sudo systemctl restart redis-server
-      sleep 3
-      if redis-cli -a "${mysql_root_password}" ping | grep -q "PONG"; then
-        printf "\n${GREEN} ✅ Teste de conexão Redis bem sucedido após reinício!${GRAY_LIGHT}"
-      else
-        printf "\n${RED} ⚠️ Problemas persistem com a conexão Redis. Verifique manualmente.${GRAY_LIGHT}"
-      fi
-    fi
-  else
-    printf "\n${RED} ⚠️ Erro ao iniciar Redis. Tentando corrigir...${GRAY_LIGHT}"
+    # Reiniciar Redis e configurar para iniciar com o sistema
     sudo systemctl restart redis-server
-    sleep 3
-    
-    if sudo systemctl is-active --quiet redis-server; then
-      printf "\n${GREEN} ✅ Redis iniciado com sucesso após segunda tentativa!${GRAY_LIGHT}"
-    else
-      printf "\n${RED} ⚠️ Falha ao iniciar o Redis. Restaurando configuração original...${GRAY_LIGHT}"
-      sudo cp /etc/redis/redis.conf.backup /etc/redis/redis.conf
-      sudo systemctl restart redis-server
-    fi
+    sudo systemctl enable redis-server
   fi
   
-  # Ajustar permissões para garantir que deploy possa usar o Redis
+  # Garantir que o usuário deploy tenha acesso ao Redis
   sudo usermod -a -G redis deploy 2>/dev/null || true
   
-  # Configurar firewall para permitir acesso local ao Redis
-  sudo ufw allow from 127.0.0.1 to any port ${redis_port} proto tcp
-  
+  printf "\n${GREEN} ✅ Verificação e configuração do Redis concluída!${GRAY_LIGHT}\n"
   sleep 2
 }
 
 system_create_user() {
-    print_banner
-    printf "${WHITE} 💻 Criando usuário deploy...${GRAY_LIGHT}"
-    printf "\n\n"
+  print_banner
+  printf "${WHITE} 💻 Verificando usuário deploy...${GRAY_LIGHT}"
+  printf "\n\n"
 
+  if id "deploy" &>/dev/null && [ "$use_existing_components" = "true" ]; then
+    printf "${GREEN} ✅ Usuário deploy já existe e será mantido${GRAY_LIGHT}\n"
+    
+    # Garantir que o usuário deploy esteja nos grupos corretos
+    sudo usermod -aG sudo deploy 2>/dev/null || true
+    
+    # Verificar permissões do diretório home
+    if [ -d "/home/deploy" ]; then
+      sudo chmod 755 /home/deploy
+      printf "${GREEN} ✅ Permissões do diretório /home/deploy verificadas${GRAY_LIGHT}\n"
+    else
+      printf "${RED} ⚠️ Diretório /home/deploy não encontrado, mas usuário existe!${GRAY_LIGHT}\n"
+      printf "${YELLOW} Criando diretório home...${GRAY_LIGHT}\n"
+      sudo mkdir -p /home/deploy
+      sudo chown deploy:deploy /home/deploy
+      sudo chmod 755 /home/deploy
+    fi
+  else
+    # Código original para criar o usuário
+    printf "${WHITE} 🔄 Criando novo usuário deploy...${GRAY_LIGHT}\n"
+    
     # Remover usuário e grupo se existirem
-    printf "${WHITE} 🔄 Removendo usuário existente para criar um novo...${GRAY_LIGHT}"
     sudo userdel -rf deploy >/dev/null 2>&1 || true
     sudo groupdel deploy >/dev/null 2>&1 || true
     sudo rm -rf /home/deploy >/dev/null 2>&1 || true
-    printf " Feito.\n"
-
+    
     # Criar grupo deploy
-    printf "${WHITE} 🔄 Criando grupo deploy...${GRAY_LIGHT}"
     sudo groupadd deploy
-    printf " Feito.\n"
-
+    
     # Criar usuário deploy com senha definida diretamente
-    printf "${WHITE} 🔄 Criando usuário deploy...${GRAY_LIGHT}"
     sudo useradd -m -s /bin/bash -g deploy deploy
-    printf " Feito.\n"
-
-    # Definir senha diretamente, sem interação
-    printf "${WHITE} 🔄 Configurando senha...${GRAY_LIGHT}"
+    
+    # Definir senha
     echo "deploy:${mysql_root_password}" | sudo chpasswd
-    printf " Feito.\n"
-
+    
     # Adicionar ao grupo sudo
-    printf "${WHITE} 🔄 Adicionando ao grupo sudo...${GRAY_LIGHT}"
     sudo usermod -aG sudo deploy
-    printf " Feito.\n"
-
+    
     # Ajustar permissões do diretório home
-    printf "${WHITE} 🔄 Configurando permissões...${GRAY_LIGHT}"
     if [ -d "/home/deploy" ]; then
-        sudo chown -R deploy:deploy /home/deploy
-        sudo chmod 755 /home/deploy
-        printf " Feito.\n"
+      sudo chown -R deploy:deploy /home/deploy
+      sudo chmod 755 /home/deploy
     else
-        printf "\n${RED} ⚠️ Erro: Diretório /home/deploy não foi criado!${GRAY_LIGHT}"
-        printf "\n\n"
-        sleep 5
-        exit 1
+      printf "\n${RED} ⚠️ Erro: Diretório /home/deploy não foi criado!${GRAY_LIGHT}\n"
+      exit 1
     fi
+  fi
 
-    # Verificar se o usuário foi criado corretamente
-    if id "deploy" >/dev/null 2>&1; then
-        printf "\n${GREEN} ✅ Usuário deploy criado com sucesso!${GRAY_LIGHT}"
-        printf "\n\n"
-    else
-        printf "\n${RED} ⚠️ Erro: Falha ao criar usuário deploy!${GRAY_LIGHT}"
-        printf "\n\n"
-        sleep 5
-        exit 1
-    fi
-
-    sleep 2
+  printf "\n${GREEN} ✅ Verificação do usuário deploy concluída!${GRAY_LIGHT}\n"
+  sleep 2
 }
 
 system_generate_jwt_secrets() {
@@ -325,89 +383,75 @@ system_git_clone() {
 
 system_pm2_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando o pm2 para o usuário deploy...${GRAY_LIGHT}\n\n"
+  printf "${WHITE} 💻 Verificando PM2...${GRAY_LIGHT}\n\n"
   
-  # Remover .npmrc se existir para evitar conflitos com NVM
-  sudo -u deploy bash -c "rm -f ~/.npmrc"
-  
-  # Instalar PM2 globalmente para o usuário deploy usando NVM
-  sudo su - deploy << EOF
-  # Remover qualquer configuração que possa causar conflito
-  rm -f ~/.npmrc
-  
-  # Carregar NVM
-  export NVM_DIR="\$HOME/.nvm"
-  [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-  
-  # Usar node com a opção delete-prefix para resolver conflitos
-  nvm use 20 --delete-prefix
-  
-  # Verificar se o Node.js está disponível
-  if command -v node &> /dev/null; then
-    echo "Node.js encontrado: \$(node -v)"
-  else
-    echo "Node.js não encontrado, tentando carregar novamente NVM"
-    source ~/.nvm/nvm.sh
-    nvm use 20 --delete-prefix
-  fi
-  
-  # Instalar PM2 globalmente
-  echo "Instalando PM2..."
-  npm install -g pm2@latest
-  
-  # Verificar a instalação
-  echo "Versão do PM2 instalada:"
-  pm2 --version
-EOF
-
-  # Verificar se o PM2 foi instalado
-  pm2_version=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 --version 2>/dev/null || echo \"\"")
-  
-  if [ -z "$pm2_version" ]; then
-    printf "\n${RED} ⚠️ PM2 não foi instalado. Tentando método alternativo...${GRAY_LIGHT}\n"
-    
-    # Método alternativo usando PATH absoluto
-    sudo su - deploy << EOF
-    # Limpar qualquer configuração conflitante
-    rm -f ~/.npmrc
-    
-    # Carregar NVM e instalar PM2
-    export NVM_DIR="\$HOME/.nvm"
-    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
-    
-    # Garantir uso do Node.js correto
-    nvm use 20 --delete-prefix
-    
-    # Caminho direto para npm dentro do NVM
-    \$HOME/.nvm/versions/node/v20.19.1/bin/npm install -g pm2@latest
-EOF
-  
-    # Verificar novamente
+  # Verificar se o PM2 já está instalado
+  pm2_installed=false
+  if id "deploy" &>/dev/null; then
     pm2_version=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 --version 2>/dev/null || echo \"\"")
     
-    if [ -z "$pm2_version" ]; then
-      printf "\n${RED} ⚠️ Falha persistente na instalação do PM2. Última tentativa...${GRAY_LIGHT}\n"
-      
-      # Último recurso - instalar PM2 globalmente como root e garantir acesso
-      sudo npm install -g pm2@latest
-      sudo chmod -R 755 /usr/local/lib/node_modules/pm2
-      sudo ln -sf /usr/local/lib/node_modules/pm2/bin/pm2 /usr/local/bin/pm2
-      
-      # Verificar novamente
-      pm2_version=$(sudo -u deploy bash -c "pm2 --version 2>/dev/null || echo \"\"")
+    if [ ! -z "$pm2_version" ]; then
+      pm2_installed=true
+      printf "${GREEN} ✅ PM2 versão ${pm2_version} já está instalado para o usuário deploy${GRAY_LIGHT}\n"
     fi
   fi
   
-  if [ -z "$pm2_version" ]; then
-    printf "\n${RED} ❌ Todas as tentativas de instalar PM2 falharam.${GRAY_LIGHT}\n"
-    return 1
-  else
-    printf "\n${GREEN} ✅ PM2 instalado com sucesso!${GRAY_LIGHT}\n"
+  if [ "$pm2_installed" = "true" ] && [ "$use_existing_components" = "true" ]; then
+    printf "${GREEN} ✅ Usando instalação existente do PM2${GRAY_LIGHT}\n"
     
-    # Configurar PM2 startup
-    sudo env PATH=$PATH:/usr/bin /home/deploy/.nvm/versions/node/v20.19.1/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+    # Verificar configuração do startup
+    printf "${YELLOW} ⚠️ Deseja configurar o PM2 para iniciar automaticamente? (y/N)${GRAY_LIGHT} "
+    read -n 1 -r
+    printf "\n"
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      # Configurar PM2 startup
+      sudo env PATH=$PATH:/usr/bin /home/deploy/.nvm/versions/node/*/bin/pm2 startup systemd -u deploy --hp /home/deploy || true
+      
+      printf "${GREEN} ✅ PM2 configurado para iniciar automaticamente${GRAY_LIGHT}\n"
+    fi
+  else
+    printf "${YELLOW} ⚠️ PM2 não detectado ou reinstalação solicitada. Instalando...${GRAY_LIGHT}\n"
+    
+    # Código original para instalar o PM2
+    # Remover .npmrc se existir para evitar conflitos com NVM
+    sudo -u deploy bash -c "rm -f ~/.npmrc"
+    
+    # Instalar PM2 globalmente para o usuário deploy usando NVM
+    sudo su - deploy << EOF
+    # Remover qualquer configuração que possa causar conflito
+    rm -f ~/.npmrc
+    
+    # Carregar NVM
+    export NVM_DIR="\$HOME/.nvm"
+    [ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+    
+    # Usar node com a opção delete-prefix para resolver conflitos
+    nvm use 20 --delete-prefix
+    
+    # Verificar se o Node.js está disponível
+    if command -v node &> /dev/null; then
+      echo "Node.js encontrado: \$(node -v)"
+    else
+      echo "Node.js não encontrado, tentando carregar novamente NVM"
+      source ~/.nvm/nvm.sh
+      nvm use 20 --delete-prefix
+    fi
+    
+    # Instalar PM2 globalmente
+    echo "Instalando PM2..."
+    npm install -g pm2@latest
+    
+    # Verificar a instalação
+    echo "Versão do PM2 instalada:"
+    pm2 --version
+EOF
+
+    # Verificar se o PM2 foi instalado
+    pm2_version=$(sudo -u deploy bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; pm2 --version 2>/dev/null || echo \"\"")
   fi
   
+  printf "\n${GREEN} ✅ Verificação e configuração do PM2 concluída!${GRAY_LIGHT}\n"
   sleep 2
 }
 
@@ -512,14 +556,44 @@ EOF
 
 system_nginx_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando nginx...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Verificando Nginx...${GRAY_LIGHT}"
   printf "\n\n"
-  sleep 2
-  sudo su - root <<EOF
-  sudo apt install -y nginx
-  rm /etc/nginx/sites-enabled/default
-  rm /etc/nginx/sites-available/default
+  
+  # Verificar se o Nginx já está instalado e funcionando
+  nginx_running=false
+  if command -v nginx &> /dev/null && sudo systemctl is-active --quiet nginx; then
+    nginx_running=true
+    nginx_version=$(nginx -v 2>&1 | grep -o 'nginx/[0-9.]*' | cut -d/ -f2)
+    printf "${GREEN} ✅ Nginx versão ${nginx_version} já está instalado e rodando${GRAY_LIGHT}\n"
+  fi
+  
+  if [ "$nginx_running" = "true" ] && [ "$use_existing_components" = "true" ]; then
+    printf "${GREEN} ✅ Usando instalação existente do Nginx${GRAY_LIGHT}\n"
+    
+    # Verificar se o site padrão está ativo e remover se necessário
+    if [ -f "/etc/nginx/sites-enabled/default" ]; then
+      printf "${YELLOW} ⚠️ O site padrão do Nginx está ativo. Deseja removê-lo? (Y/n)${GRAY_LIGHT} "
+      read -n 1 -r
+      printf "\n"
+      
+      if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        sudo rm -f /etc/nginx/sites-enabled/default
+        sudo rm -f /etc/nginx/sites-available/default
+        printf "${GREEN} ✅ Site padrão do Nginx removido${GRAY_LIGHT}\n"
+      fi
+    fi
+  else
+    printf "${YELLOW} ⚠️ Nginx não detectado ou reinstalação solicitada. Instalando...${GRAY_LIGHT}\n"
+    
+    # Código original para instalar o Nginx
+    sudo su - root <<EOF
+    sudo apt install -y nginx
+    rm -f /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-available/default
 EOF
+  fi
+  
+  printf "\n${GREEN} ✅ Verificação e configuração do Nginx concluída!${GRAY_LIGHT}\n"
   sleep 2
 }
 

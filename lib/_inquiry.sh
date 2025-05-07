@@ -1,5 +1,101 @@
 #!/bin/bash
 
+detect_installed_components() {
+  print_banner
+  printf "${WHITE} 💻 Detectando componentes já instalados...${GRAY_LIGHT}"
+  printf "\n\n"
+  
+  # Verificar Nginx
+  nginx_installed=false
+  if command -v nginx &> /dev/null && sudo systemctl is-active --quiet nginx; then
+    nginx_installed=true
+    printf "${GREEN} ✅ Nginx detectado e ativo${GRAY_LIGHT}\n"
+  else
+    printf "${YELLOW} ⚠️ Nginx não detectado ou não está ativo${GRAY_LIGHT}\n"
+  fi
+
+  # Verificar PostgreSQL
+  postgresql_installed=false
+  if command -v psql &> /dev/null && sudo systemctl is-active --quiet postgresql; then
+    postgresql_installed=true
+    printf "${GREEN} ✅ PostgreSQL detectado e ativo${GRAY_LIGHT}\n"
+  else
+    printf "${YELLOW} ⚠️ PostgreSQL não detectado ou não está ativo${GRAY_LIGHT}\n"
+  fi
+
+  # Verificar Redis
+  redis_installed=false
+  if command -v redis-cli &> /dev/null && sudo systemctl is-active --quiet redis-server; then
+    redis_installed=true
+    printf "${GREEN} ✅ Redis detectado e ativo${GRAY_LIGHT}\n"
+  else
+    printf "${YELLOW} ⚠️ Redis não detectado ou não está ativo${GRAY_LIGHT}\n"
+  fi
+
+  # Verificar Node.js para o usuário deploy (se o usuário existir)
+  nodejs_installed=false
+  deploy_exists=false
+  if id "deploy" &>/dev/null; then
+    deploy_exists=true
+    printf "${GREEN} ✅ Usuário deploy já existe${GRAY_LIGHT}\n"
+    
+    # Verificar Node.js para o usuário deploy
+    node_version=$(sudo -u deploy bash -c 'command -v node &> /dev/null && node -v' 2>/dev/null || echo "")
+    if [ ! -z "$node_version" ]; then
+      nodejs_installed=true
+      printf "${GREEN} ✅ Node.js detectado para usuário deploy: ${node_version}${GRAY_LIGHT}\n"
+    else
+      # Verificar se o NVM está instalado
+      nvm_exists=$(sudo -u deploy bash -c 'test -d "$HOME/.nvm" && echo "true" || echo "false"')
+      if [ "$nvm_exists" = "true" ]; then
+        nvm_node_version=$(sudo -u deploy bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; node -v' 2>/dev/null || echo "")
+        if [ ! -z "$nvm_node_version" ]; then
+          nodejs_installed=true
+          printf "${GREEN} ✅ Node.js via NVM detectado: ${nvm_node_version}${GRAY_LIGHT}\n"
+        else
+          printf "${YELLOW} ⚠️ NVM encontrado, mas Node.js não está configurado${GRAY_LIGHT}\n"
+        fi
+      else
+        printf "${YELLOW} ⚠️ Node.js não detectado para usuário deploy${GRAY_LIGHT}\n"
+      fi
+    fi
+    
+    # Verificar PM2
+    pm2_exists=$(sudo -u deploy bash -c 'command -v pm2 &> /dev/null && echo "true" || echo "false"')
+    if [ "$pm2_exists" = "true" ]; then
+      pm2_installed=true
+      pm2_version=$(sudo -u deploy bash -c 'pm2 --version' 2>/dev/null || echo "")
+      printf "${GREEN} ✅ PM2 detectado: ${pm2_version}${GRAY_LIGHT}\n"
+    else
+      pm2_installed=false
+      printf "${YELLOW} ⚠️ PM2 não detectado para usuário deploy${GRAY_LIGHT}\n"
+    fi
+  else
+    printf "${YELLOW} ⚠️ Usuário deploy não existe${GRAY_LIGHT}\n"
+  fi
+  
+  printf "\n${WHITE} 💻 Como deseja prosseguir?${GRAY_LIGHT}\n\n"
+  printf "   [1] Usar componentes existentes quando possível (recomendado)\n"
+  printf "   [2] Tentar reinstalar todos os componentes (pode causar conflitos)\n"
+  printf "\n"
+  read -p "> " use_existing
+  
+  case "${use_existing}" in
+    1)
+      use_existing_components=true
+      ;;
+    2)
+      use_existing_components=false
+      ;;
+    *)
+      printf "\n${YELLOW} ⚠️ Opção inválida. Usando componentes existentes por segurança.${GRAY_LIGHT}\n"
+      use_existing_components=true
+      ;;
+  esac
+  
+  sleep 2
+}
+
 get_mysql_root_password() {
   print_banner
   printf "${WHITE} 💻 Insira senha para o usuario Deploy e Banco de Dados:${GRAY_LIGHT}"
@@ -143,6 +239,7 @@ inquiry_options() {
             else
                 get_urls
                 show_vars
+                detect_installed_components
             fi
             ;;
         2)
